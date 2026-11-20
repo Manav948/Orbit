@@ -248,3 +248,35 @@ html[data-theme="light"] [class~="hover:text-neutral-200"]:hover {
 html[data-theme="light"] [class~="hover:border-white/[0.13]"]:hover {
   border-color: rgb(15 23 42 / 18%);
 }
+
+/* Keep accent text readable against pale surfaces in light mode. */
+html[data-theme="light"] [class~="text-amber-300"],
+html[data-theme="light"] [class~="text-amber-400"],
+html[data-theme="light"] [class~="text-amber-300/80"] { color: #92400e; }
+html[data-theme="light"] [class~="text-sky-300"],
+html[data-theme="light"] [class~="text-sky-400"] { color: #075985; }
+html[data-theme="light"] [class~="text-emerald-300"],
+html[data-theme="light"] [class~="text-emerald-400"] { color: #047857; }
+html[data-theme="light"] [class~="text-violet-300"],
+html[data-theme="light"] [class~="text-violet-400"] { color: #6d28d9; }
+html[data-theme="light"] [class~="hover:text-amber-300"]:hover { color: #92400e; }
+html[data-theme="light"] [class~="hover:text-sky-300"]:hover { color: #075985; }
+html[data-theme="light"] [class~="hover:text-emerald-300"]:hover { color: #047857; }
+html[data-theme="light"] [class~="hover:text-violet-300"]:hover { color: #6d28d9; }
+
+html[data-theme="light"] [class~="bg-amber-500/10"] { background-color: rgb(245 158 11 / 12%); }
+html[data-theme="light"] [class~="bg-sky-500/10"] { background-color: rgb(14 165 233 / 12%); }
+html[data-theme="light"] [class~="bg-emerald-500/10"] { background-color: rgb(16 185 129 / 12%); }
+html[data-theme="light"] [class~="bg-violet-500/10"] { background-color: rgb(139 92 246 / 12%); }
+html[data-theme="light"] [class~="bg-amber-500/20"] { background-color: rgb(245 158 11 / 16%); }
+html[data-theme="light"] [class~="bg-sky-500/20"] { background-color: rgb(14 165 233 / 16%); }
+html[data-theme="light"] [class~="bg-emerald-500/20"] { background-color: rgb(16 185 129 / 16%); }
+html[data-theme="light"] [class~="bg-violet-500/20"] { background-color: rgb(139 92 246 / 16%); }
+html[data-theme="light"] [class~="border-amber-500/30"],
+html[data-theme="light"] [class~="border-amber-400/40"] { border-color: rgb(146 64 14 / 38%); }
+html[data-theme="light"] [class~="border-sky-500/30"],
+html[data-theme="light"] [class~="border-sky-400/40"] { border-color: rgb(7 89 133 / 38%); }
+html[data-theme="light"] [class~="border-emerald-500/30"],
+html[data-theme="light"] [class~="border-emerald-400/40"] { border-color: rgb(4 120 87 / 38%); }
+html[data-theme="light"] [class~="border-violet-500/30"],
+html[data-theme="light"] [class~="border-violet-400/40"] { border-color: rgb(109 40 217 / 38%); }

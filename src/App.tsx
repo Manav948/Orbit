@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { CollapsedIsland } from "./components/DynamicIsland/CollapsedIsland";
@@ -14,6 +14,7 @@ export function App() {
   const { systemInfo, appStatus, windowGeometry } = useDesktopStatus();
   const {
     preferences,
+    isLoading: preferencesLoading,
     accent,
     setLaunchAtStartup,
     setStartMinimized,
@@ -30,14 +31,22 @@ export function App() {
     resetAllPreferences,
   } = usePreferences();
 
-  const [mode, setMode] = useState<IslandMode>("collapsed");
+  const [mode, setMode] = useState<IslandMode | null>(null);
   const [webNotice, setWebNotice] = useState(false);
+  const startupModeApplied = useRef(false);
 
   // Transition helper that coordinates UI state and native OS window sizing
   const transitionTo = useCallback(async (newMode: IslandMode) => {
     setMode(newMode);
     await tauriBridge.setIslandGeometry(newMode);
   }, []);
+
+  // Apply the saved startup mode once preferences have loaded.
+  useEffect(() => {
+    if (preferencesLoading || startupModeApplied.current) return;
+    startupModeApplied.current = true;
+    void transitionTo(preferences.default_island_mode);
+  }, [preferencesLoading, preferences.default_island_mode, transitionTo]);
 
   const handleExpand = () => transitionTo("expanded");
   const handleCollapse = () => transitionTo("collapsed");
@@ -56,13 +65,21 @@ export function App() {
   useEffect(() => {
     if (!isTauriEnvironment()) return;
     let unlisten: (() => void) | undefined;
-    listen("open-settings", () => {
-      transitionTo("settings");
-    }).then((fn) => {
-      unlisten = fn;
+    let unlistenSettings: (() => void) | undefined;
+    Promise.all([
+      listen<string>("open-island", (event) => {
+        transitionTo(event.payload === "expanded" ? "expanded" : "collapsed");
+      }),
+      listen("open-settings", () => {
+        transitionTo("settings");
+      }),
+    ]).then(([stopIsland, stopSettings]) => {
+      unlisten = stopIsland;
+      unlistenSettings = stopSettings;
     });
     return () => {
       unlisten?.();
+      unlistenSettings?.();
     };
   }, [transitionTo]);
 

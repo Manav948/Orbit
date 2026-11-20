@@ -22,7 +22,30 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-/// Toggle the main Orbit window: show + focus if hidden or unfocused, hide if visible and focused.
+/// Show the island in the user's chosen default mode.
+fn open_island(app: &tauri::AppHandle) {
+    let prefs = load_preferences_internal(app);
+    let mode = if prefs.default_island_mode == "expanded" {
+        "expanded"
+    } else {
+        "collapsed"
+    };
+
+    if let Some(window) = app.get_webview_window("main") {
+        let (width, height) = if mode == "expanded" {
+            (680.0, 520.0)
+        } else {
+            (360.0, 48.0)
+        };
+        let _ = position_window_top_center(&window, width, height, 12.0);
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = window.emit("open-island", mode);
+    }
+}
+
+/// Toggle the main Orbit window: hide it when focused, otherwise open in the configured mode.
 fn toggle_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let is_visible = window.is_visible().unwrap_or(false);
@@ -31,9 +54,7 @@ fn toggle_window(app: &tauri::AppHandle) {
         if is_visible && is_focused {
             let _ = window.hide();
         } else {
-            let _ = window.unminimize();
-            let _ = window.show();
-            let _ = window.set_focus();
+            open_island(app);
         }
     }
 }
@@ -45,11 +66,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            open_island(app);
         }))
         // ── Setup (shortcut + tray + initial geometry + preferences + DB) ─────
         .setup(|app| {
@@ -66,7 +83,11 @@ pub fn run() {
 
             // ── 3. Position the Dynamic Island at the top-center ──────────────
             if let Some(window) = app.get_webview_window("main") {
-                let _ = position_window_top_center(&window, 360.0, 48.0, 12.0);
+                let (width, height) = match prefs.default_island_mode.as_str() {
+                    "expanded" => (680.0, 520.0),
+                    _ => (360.0, 48.0),
+                };
+                let _ = position_window_top_center(&window, width, height, 12.0);
                 if !prefs.start_minimized {
                     let _ = window.show();
                 } else {
@@ -110,11 +131,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.unminimize();
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        open_island(app);
                     }
                     "settings" => {
                         if let Some(window) = app.get_webview_window("main") {
