@@ -1,15 +1,22 @@
 import { useState, type FormEvent } from "react";
 import {
-  NexoraLogo,
-  CloseIcon,
-  ChevronLeftIcon,
-  SlidersIcon,
-  PaletteIcon,
-  KeyboardIcon,
-  SparklesIcon,
-  CpuIcon,
-  InfoIcon,
-} from "../icons";
+  Sliders,
+  Palette,
+  Keyboard,
+  Sparkles,
+  Cpu,
+  Info,
+  ArrowLeft,
+  X,
+} from "lucide-react";
+import { NexoraLogo } from "../icons";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { tauriBridge } from "../../services/tauriBridge";
 import type { SystemInfo, AppStatus, WindowGeometry } from "../../types/desktop";
 
@@ -87,18 +94,18 @@ export function SettingsPage({
   };
 
   const navItems = [
-    { id: "general" as SettingsTab, label: "General", icon: <SlidersIcon className="w-4 h-4" /> },
-    { id: "appearance" as SettingsTab, label: "Appearance", icon: <PaletteIcon className="w-4 h-4" /> },
-    { id: "shortcuts" as SettingsTab, label: "Shortcuts", icon: <KeyboardIcon className="w-4 h-4" /> },
-    { id: "categories" as SettingsTab, label: "Intelligence Categories", icon: <SparklesIcon className="w-4 h-4" /> },
-    { id: "ai" as SettingsTab, label: "AI Configuration", icon: <CpuIcon className="w-4 h-4" /> },
-    { id: "about" as SettingsTab, label: "About Nexora", icon: <InfoIcon className="w-4 h-4" /> },
+    { id: "general" as SettingsTab, label: "General", icon: <Sliders className="w-4 h-4" /> },
+    { id: "appearance" as SettingsTab, label: "Appearance", icon: <Palette className="w-4 h-4" /> },
+    { id: "shortcuts" as SettingsTab, label: "Shortcuts", icon: <Keyboard className="w-4 h-4" /> },
+    { id: "categories" as SettingsTab, label: "Intelligence Categories", icon: <Sparkles className="w-4 h-4" /> },
+    { id: "ai" as SettingsTab, label: "AI Configuration", icon: <Cpu className="w-4 h-4" /> },
+    { id: "about" as SettingsTab, label: "About Nexora", icon: <Info className="w-4 h-4" /> },
   ];
 
   return (
-    <div
+    <Card
       onClick={(e) => e.stopPropagation()}
-      className="w-[760px] h-[540px] flex flex-col bg-[#07080a]/98 border border-white/[0.09] rounded-3xl shadow-2xl shadow-black/95 overflow-hidden backdrop-blur-2xl text-neutral-200 select-none transition-all duration-300"
+      className="w-[760px] h-[540px] p-0 gap-0 flex flex-col bg-[#07080a]/98 border-white/[0.09] rounded-3xl shadow-2xl shadow-black/95 overflow-hidden backdrop-blur-2xl text-neutral-200 select-none ring-1 ring-white/[0.04]"
     >
       {/* ── Top Bar ────────────────────────────────────────────────────── */}
       <div
@@ -106,16 +113,17 @@ export function SettingsPage({
         className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] bg-gradient-to-b from-white/[0.02] to-transparent cursor-move"
       >
         <div className="flex items-center space-x-3" data-tauri-drag-region="false">
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            size="sm"
             onClick={onBackToIsland}
-            className="flex items-center space-x-1.5 px-2.5 py-1 rounded-xl bg-white/[0.04] hover:bg-amber-500/10 border border-white/[0.06] hover:border-amber-500/30 text-xs font-medium text-neutral-300 hover:text-amber-300 transition-colors cursor-pointer"
+            className="h-7 px-2.5 bg-white/[0.04] hover:bg-amber-500/10 border-white/[0.08] hover:border-amber-500/30 text-xs text-neutral-200 hover:text-amber-300 gap-1.5 rounded-xl cursor-pointer"
           >
-            <ChevronLeftIcon className="w-3.5 h-3.5" />
+            <ArrowLeft className="w-3.5 h-3.5" />
             <span>Island View</span>
-          </button>
+          </Button>
 
-          <div className="h-4 w-px bg-white/[0.08]" />
+          <Separator orientation="vertical" className="h-4 bg-white/[0.1]" />
 
           <div className="flex items-center space-x-2">
             <div className="w-5 h-5 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
@@ -127,17 +135,18 @@ export function SettingsPage({
           </div>
         </div>
 
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={onBackToIsland}
+          className="text-neutral-400 hover:text-white hover:bg-white/[0.06] rounded-lg"
           title="Close Settings (Esc)"
-          className="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
         >
-          <CloseIcon className="w-3.5 h-3.5" />
-        </button>
+          <X className="w-3.5 h-3.5" />
+        </Button>
       </div>
 
-      {/* ── Main Two-Column Layout ─────────────────────────────────────── */}
+      {/* ── Two-Column Layout ──────────────────────────────────────────── */}
       <div className="flex flex-1 min-h-0">
         {/* Sidebar Navigation */}
         <div className="w-56 p-3 border-r border-white/[0.06] bg-black/30 flex flex-col justify-between">
@@ -145,34 +154,34 @@ export function SettingsPage({
             {navItems.map((item) => {
               const active = activeTab === item.id;
               return (
-                <button
+                <Button
                   key={item.id}
-                  type="button"
+                  variant={active ? "secondary" : "ghost"}
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-150 cursor-pointer ${
+                  className={`w-full justify-start gap-2.5 h-8 px-3 text-xs font-medium rounded-xl transition-all ${
                     active
-                      ? "bg-amber-500/[0.12] text-amber-300 border border-amber-500/30 font-semibold"
-                      : "text-neutral-400 hover:text-neutral-200 hover:bg-white/[0.03] border border-transparent"
+                      ? "bg-amber-500/[0.12] text-amber-300 border border-amber-500/30 font-semibold shadow-xs"
+                      : "text-neutral-400 hover:text-neutral-200 hover:bg-white/[0.03]"
                   }`}
                 >
                   <span className={active ? "text-amber-400" : "text-neutral-500"}>
                     {item.icon}
                   </span>
                   <span className="truncate">{item.label}</span>
-                </button>
+                </Button>
               );
             })}
           </div>
 
           {/* Quick Telemetry Footnote */}
-          <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04] text-[10px] text-neutral-500">
-            <div>Nexora Core v0.1.0</div>
+          <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04] text-[10px] text-neutral-500 space-y-0.5">
+            <div className="font-medium text-neutral-400">Nexora Core v0.1.0</div>
             <div>Windows Native • Top-Center</div>
           </div>
         </div>
 
-        {/* Content Pane */}
-        <div className="flex-1 p-5 overflow-y-auto space-y-4">
+        {/* Content Pane with shadcn ScrollArea */}
+        <ScrollArea className="flex-1 p-5">
           {/* 1. GENERAL TAB */}
           {activeTab === "general" && (
             <div className="space-y-4 animate-in fade-in duration-150">
@@ -184,50 +193,44 @@ export function SettingsPage({
               </div>
 
               <div className="space-y-2.5">
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex-row items-center justify-between">
                   <div>
                     <span className="text-xs font-medium text-white block">Launch at Windows Startup</span>
                     <span className="text-[10px] text-neutral-400 block">
                       Position Nexora Dynamic Island automatically when signing in.
                     </span>
                   </div>
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={launchAtStartup}
-                    onChange={(e) => setLaunchAtStartup(e.target.checked)}
-                    className="accent-amber-500 h-4 w-4 cursor-pointer"
+                    onCheckedChange={(checked) => setLaunchAtStartup(checked)}
                   />
-                </div>
+                </Card>
 
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex-row items-center justify-between">
                   <div>
                     <span className="text-xs font-medium text-white block">Keep Active in System Tray</span>
                     <span className="text-[10px] text-neutral-400 block">
                       Closing the window hides it to the tray rather than terminating.
                     </span>
                   </div>
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={minimizeToTray}
-                    onChange={(e) => setMinimizeToTray(e.target.checked)}
-                    className="accent-amber-500 h-4 w-4 cursor-pointer"
+                    onCheckedChange={(checked) => setMinimizeToTray(checked)}
                   />
-                </div>
+                </Card>
 
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex-row items-center justify-between">
                   <div>
                     <span className="text-xs font-medium text-white block">Audio Confirmation Feedback</span>
                     <span className="text-[10px] text-neutral-400 block">
                       Subtle tactile sound on expansion and query submission.
                     </span>
                   </div>
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={audioFeedback}
-                    onChange={(e) => setAudioFeedback(e.target.checked)}
-                    className="accent-amber-500 h-4 w-4 cursor-pointer"
+                    onCheckedChange={(checked) => setAudioFeedback(checked)}
                   />
-                </div>
+                </Card>
               </div>
             </div>
           )}
@@ -243,13 +246,14 @@ export function SettingsPage({
               </div>
 
               {/* Accent Palette */}
-              <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-2">
+              <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2">
                 <span className="text-xs font-medium text-white block">Accent Palette</span>
                 <div className="grid grid-cols-3 gap-2">
-                  <button
+                  <Button
                     type="button"
+                    variant={accentTheme === "amber" ? "secondary" : "outline"}
                     onClick={() => setAccentTheme("amber")}
-                    className={`p-2.5 rounded-xl border text-xs flex items-center space-x-2 cursor-pointer transition-all ${
+                    className={`h-9 justify-start px-3 text-xs gap-2 rounded-xl cursor-pointer ${
                       accentTheme === "amber"
                         ? "bg-amber-500/10 border-amber-500/40 text-amber-300 font-semibold"
                         : "bg-black/30 border-white/[0.06] text-neutral-400"
@@ -257,12 +261,13 @@ export function SettingsPage({
                   >
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
                     <span>Obsidian Gold</span>
-                  </button>
+                  </Button>
 
-                  <button
+                  <Button
                     type="button"
+                    variant={accentTheme === "cyber" ? "secondary" : "outline"}
                     onClick={() => setAccentTheme("cyber")}
-                    className={`p-2.5 rounded-xl border text-xs flex items-center space-x-2 cursor-pointer transition-all ${
+                    className={`h-9 justify-start px-3 text-xs gap-2 rounded-xl cursor-pointer ${
                       accentTheme === "cyber"
                         ? "bg-sky-500/10 border-sky-500/40 text-sky-300 font-semibold"
                         : "bg-black/30 border-white/[0.06] text-neutral-400"
@@ -270,12 +275,13 @@ export function SettingsPage({
                   >
                     <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
                     <span>Cyber Blue</span>
-                  </button>
+                  </Button>
 
-                  <button
+                  <Button
                     type="button"
+                    variant={accentTheme === "emerald" ? "secondary" : "outline"}
                     onClick={() => setAccentTheme("emerald")}
-                    className={`p-2.5 rounded-xl border text-xs flex items-center space-x-2 cursor-pointer transition-all ${
+                    className={`h-9 justify-start px-3 text-xs gap-2 rounded-xl cursor-pointer ${
                       accentTheme === "emerald"
                         ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-300 font-semibold"
                         : "bg-black/30 border-white/[0.06] text-neutral-400"
@@ -283,23 +289,23 @@ export function SettingsPage({
                   >
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
                     <span>Emerald Jade</span>
-                  </button>
+                  </Button>
                 </div>
-              </div>
+              </Card>
 
-              {/* Island Position & Blur & Scale */}
+              {/* Island Placement & Controls */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-1">
                   <span className="text-xs font-medium text-white block">Screen Placement</span>
                   <span className="text-[11px] text-amber-300 block font-mono">
                     Top-Center (Dynamic Island)
                   </span>
                   <span className="text-[10px] text-neutral-500 block">
-                    Fixed at 12px from top screen edge.
+                    Anchored at 12px from top screen edge.
                   </span>
-                </div>
+                </Card>
 
-                <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-1">
                   <span className="text-xs font-medium text-white block">Glass Blur Intensity</span>
                   <select
                     value={glassBlur}
@@ -310,9 +316,9 @@ export function SettingsPage({
                     <option value="medium">Medium Acrylic</option>
                     <option value="strong">Deep Obsidian Mica</option>
                   </select>
-                </div>
+                </Card>
 
-                <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-1 col-span-2">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-1.5 col-span-2">
                   <div className="flex justify-between text-xs">
                     <span className="font-medium text-white">Dynamic Island Compact Scale:</span>
                     <span className="text-amber-300 font-mono">{islandScale}%</span>
@@ -326,7 +332,7 @@ export function SettingsPage({
                     onChange={(e) => setIslandScale(parseInt(e.target.value, 10))}
                     className="w-full accent-amber-500 cursor-pointer"
                   />
-                </div>
+                </Card>
               </div>
             </div>
           )}
@@ -342,41 +348,50 @@ export function SettingsPage({
               </div>
 
               <div className="space-y-2.5">
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex-row items-center justify-between">
                   <div>
                     <span className="text-xs font-medium text-white block">Toggle Island Visibility</span>
                     <span className="text-[10px] text-neutral-400 block">
                       Show or hide Nexora from anywhere in Windows.
                     </span>
                   </div>
-                  <kbd className="px-2.5 py-1 rounded-lg bg-white/[0.06] border border-white/[0.1] text-xs font-mono font-semibold text-amber-300">
+                  <Badge
+                    variant="outline"
+                    className="px-2.5 py-1 bg-white/[0.06] border-white/[0.1] text-xs font-mono font-semibold text-amber-300"
+                  >
                     {globalShortcut}
-                  </kbd>
-                </div>
+                  </Badge>
+                </Card>
 
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex-row items-center justify-between">
                   <div>
                     <span className="text-xs font-medium text-white block">Collapse to Island Pill</span>
                     <span className="text-[10px] text-neutral-400 block">
                       Instantly minimize the expanded panel.
                     </span>
                   </div>
-                  <kbd className="px-2.5 py-1 rounded-lg bg-white/[0.06] border border-white/[0.1] text-xs font-mono font-semibold text-neutral-300">
+                  <Badge
+                    variant="outline"
+                    className="px-2.5 py-1 bg-white/[0.06] border-white/[0.1] text-xs font-mono font-semibold text-neutral-300"
+                  >
                     Escape
-                  </kbd>
-                </div>
+                  </Badge>
+                </Card>
 
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex-row items-center justify-between">
                   <div>
                     <span className="text-xs font-medium text-white block">Quick Voice Dictation</span>
                     <span className="text-[10px] text-neutral-400 block">
                       Direct voice trigger placeholder.
                     </span>
                   </div>
-                  <kbd className="px-2.5 py-1 rounded-lg bg-white/[0.06] border border-white/[0.1] text-xs font-mono font-semibold text-neutral-300">
+                  <Badge
+                    variant="outline"
+                    className="px-2.5 py-1 bg-white/[0.06] border-white/[0.1] text-xs font-mono font-semibold text-neutral-300"
+                  >
                     {voiceHotkey}
-                  </kbd>
-                </div>
+                  </Badge>
+                </Card>
               </div>
             </div>
           )}
@@ -392,45 +407,37 @@ export function SettingsPage({
               </div>
 
               <div className="space-y-2.5">
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex-row items-center justify-between">
                   <span className="text-xs font-medium text-white">World News & Diplomacy</span>
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={feedWorldNews}
-                    onChange={(e) => setFeedWorldNews(e.target.checked)}
-                    className="accent-amber-500 h-4 w-4 cursor-pointer"
+                    onCheckedChange={(checked) => setFeedWorldNews(checked)}
                   />
-                </div>
+                </Card>
 
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex-row items-center justify-between">
                   <span className="text-xs font-medium text-white">Finance & Markets</span>
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={feedFinance}
-                    onChange={(e) => setFeedFinance(e.target.checked)}
-                    className="accent-amber-500 h-4 w-4 cursor-pointer"
+                    onCheckedChange={(checked) => setFeedFinance(checked)}
                   />
-                </div>
+                </Card>
 
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex-row items-center justify-between">
                   <span className="text-xs font-medium text-white">Technology & Artificial Intelligence</span>
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={feedTech}
-                    onChange={(e) => setFeedTech(e.target.checked)}
-                    className="accent-amber-500 h-4 w-4 cursor-pointer"
+                    onCheckedChange={(checked) => setFeedTech(checked)}
                   />
-                </div>
+                </Card>
 
-                <div className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex-row items-center justify-between">
                   <span className="text-xs font-medium text-white">Daily Knowledge & Mental Models</span>
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={feedDaily}
-                    onChange={(e) => setFeedDaily(e.target.checked)}
-                    className="accent-amber-500 h-4 w-4 cursor-pointer"
+                    onCheckedChange={(checked) => setFeedDaily(checked)}
                   />
-                </div>
+                </Card>
               </div>
             </div>
           )}
@@ -445,42 +452,46 @@ export function SettingsPage({
                 </p>
               </div>
 
-              <div className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-3">
-                <div className="space-y-1">
+              <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-3">
+                <div className="space-y-1.5">
                   <span className="text-xs font-medium text-white block">Execution Mode</span>
                   <div className="flex space-x-2">
-                    <button
+                    <Button
                       type="button"
+                      variant={aiProvider === "cloud" ? "secondary" : "outline"}
+                      size="sm"
                       onClick={() => setAiProvider("cloud")}
-                      className={`px-3 py-1.5 rounded-xl border text-xs cursor-pointer ${
+                      className={`h-7 text-xs rounded-xl ${
                         aiProvider === "cloud"
                           ? "bg-amber-500/10 border-amber-500/40 text-amber-300 font-medium"
                           : "bg-black/30 border-white/[0.06] text-neutral-400"
                       }`}
                     >
                       Cloud Fast Synthesis
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
+                      variant={aiProvider === "local" ? "secondary" : "outline"}
+                      size="sm"
                       onClick={() => setAiProvider("local")}
-                      className={`px-3 py-1.5 rounded-xl border text-xs cursor-pointer ${
+                      className={`h-7 text-xs rounded-xl ${
                         aiProvider === "local"
                           ? "bg-amber-500/10 border-amber-500/40 text-amber-300 font-medium"
                           : "bg-black/30 border-white/[0.06] text-neutral-400"
                       }`}
                     >
                       Local Device Isolation (Placeholder)
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
                 <div className="space-y-1">
                   <span className="text-xs font-medium text-white block">Active Model Engine</span>
-                  <input
+                  <Input
                     type="text"
                     value={aiModel}
                     onChange={(e) => setAiModel(e.target.value)}
-                    className="w-full text-xs bg-black/50 border border-white/[0.08] rounded-xl p-2 text-neutral-200 focus:outline-none"
+                    className="h-8 text-xs bg-black/50 border-white/[0.08] rounded-xl text-neutral-200"
                   />
                 </div>
 
@@ -499,7 +510,7 @@ export function SettingsPage({
                     className="w-full accent-amber-500 cursor-pointer"
                   />
                 </div>
-              </div>
+              </Card>
             </div>
           )}
 
@@ -514,21 +525,21 @@ export function SettingsPage({
               </div>
 
               <div className="grid grid-cols-2 gap-2.5 text-xs">
-                <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl">
                   <span className="text-[10px] uppercase font-semibold text-neutral-400 block">Host OS & Architecture</span>
                   <span className="text-white font-medium mt-0.5 block capitalize">
                     {systemInfo?.os ?? "Windows"} ({systemInfo?.arch ?? "x86_64"})
                   </span>
-                </div>
+                </Card>
 
-                <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl">
                   <span className="text-[10px] uppercase font-semibold text-neutral-400 block">Tauri Desktop Runtime</span>
                   <span className="text-amber-300 font-medium mt-0.5 block">
                     {systemInfo?.tauri_version ?? "Tauri 2"} • {appStatus?.runtime_mode ?? "Active"}
                   </span>
-                </div>
+                </Card>
 
-                <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06] col-span-2">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl col-span-2">
                   <span className="text-[10px] uppercase font-semibold text-neutral-400 block">Window Configuration</span>
                   <span className="text-neutral-300 text-[11px] mt-0.5 block">
                     Mode: Dynamic Island • Top-Center • Borderless • Transparent • Always-on-Top
@@ -538,26 +549,27 @@ export function SettingsPage({
                       Live Rect: {windowGeometry.width} × {windowGeometry.height} px at ({windowGeometry.x}, {windowGeometry.y}) • Scale {windowGeometry.scale_factor}x
                     </span>
                   )}
-                </div>
+                </Card>
               </div>
 
-              {/* Diagnostic Ping Test */}
-              <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-2">
+              {/* Native Host Diagnostic Ping using shadcn Input & Button */}
+              <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2">
                 <span className="text-xs font-semibold text-white block">Native Host Ping Diagnostics</span>
                 <form onSubmit={handleTestPing} className="flex space-x-2">
-                  <input
+                  <Input
                     type="text"
                     value={pingInput}
                     onChange={(e) => setPingInput(e.target.value)}
-                    className="flex-1 text-xs bg-black/60 border border-white/[0.08] rounded-xl px-2.5 py-1.5 text-neutral-200 focus:outline-none"
+                    className="h-8 text-xs bg-black/60 border-white/[0.08] rounded-xl text-neutral-200"
                   />
-                  <button
+                  <Button
                     type="submit"
                     disabled={isPinging}
-                    className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-medium cursor-pointer transition-colors"
+                    size="sm"
+                    className="h-8 px-3 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-medium cursor-pointer transition-colors"
                   >
                     {isPinging ? "Testing..." : "Send Ping"}
-                  </button>
+                  </Button>
                 </form>
 
                 {pingResponse && (
@@ -570,11 +582,11 @@ export function SettingsPage({
                     ✕ {pingError}
                   </div>
                 )}
-              </div>
+              </Card>
             </div>
           )}
-        </div>
+        </ScrollArea>
       </div>
-    </div>
+    </Card>
   );
 }

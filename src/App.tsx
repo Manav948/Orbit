@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { CollapsedIsland } from "./components/DynamicIsland/CollapsedIsland";
 import { ExpandedIsland } from "./components/DynamicIsland/ExpandedIsland";
 import { SettingsPage } from "./components/Settings/SettingsPage";
@@ -72,58 +73,60 @@ export function App() {
   }, [mode, transitionTo]);
 
   return (
-    <div
-      onClick={() => {
-        // Clicking in the transparent background area outside the island collapses it
-        if (mode === "expanded") {
-          handleCollapse();
-        }
-      }}
-      className="w-screen h-screen flex flex-col items-center justify-start p-1.5 box-border bg-transparent select-none overflow-hidden"
-    >
-      {/* Web browser mode banner */}
-      {webNotice && (
-        <div className="mb-2 p-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-[11px] text-amber-300 flex items-center space-x-2">
-          <span>[Desktop Simulation] Window hidden to tray in native mode.</span>
-          <button
-            onClick={() => setWebNotice(false)}
-            className="text-white underline cursor-pointer"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
+    <TooltipProvider>
+      <div
+        onClick={() => {
+          // Clicking in the transparent background area outside the island collapses it
+          if (mode === "expanded") {
+            handleCollapse();
+          }
+        }}
+        className="w-screen h-screen flex flex-col items-center justify-start p-1.5 box-border bg-transparent select-none overflow-hidden"
+      >
+        {/* Web browser mode banner */}
+        {webNotice && (
+          <div className="mb-2 p-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-[11px] text-amber-300 flex items-center space-x-2">
+            <span>[Desktop Simulation] Window hidden to tray in native mode.</span>
+            <button
+              onClick={() => setWebNotice(false)}
+              className="text-white underline cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
-      {/* ── Mode 1: Collapsed Dynamic Island Pill ────────────────────────── */}
-      {mode === "collapsed" && (
-        <div className="animate-in fade-in zoom-in-95 duration-200">
-          <CollapsedIsland onExpand={handleExpand} statusText="Ready" isOnline={true} />
-        </div>
-      )}
+        {/* ── Mode 1: Collapsed Dynamic Island Pill ────────────────────────── */}
+        {mode === "collapsed" && (
+          <div className="animate-in fade-in zoom-in-95 duration-200">
+            <CollapsedIsland onExpand={handleExpand} statusText="Ready" isOnline={true} />
+          </div>
+        )}
 
-      {/* ── Mode 2: Expanded Dynamic Island Panel ───────────────────────── */}
-      {mode === "expanded" && (
-        <div className="animate-in fade-in slide-in-from-top-2 duration-250">
-          <ExpandedIsland
-            onCollapse={handleCollapse}
-            onOpenSettings={handleOpenSettings}
-            onCloseWindow={handleCloseWindow}
-          />
-        </div>
-      )}
+        {/* ── Mode 2: Expanded Dynamic Island Panel ───────────────────────── */}
+        {mode === "expanded" && (
+          <div className="animate-in fade-in slide-in-from-top-2 duration-250">
+            <ExpandedIsland
+              onCollapse={handleCollapse}
+              onOpenSettings={handleOpenSettings}
+              onCloseWindow={handleCloseWindow}
+            />
+          </div>
+        )}
 
-      {/* ── Mode 3: Full Settings Interface ─────────────────────────────── */}
-      {mode === "settings" && (
-        <div className="animate-in fade-in zoom-in-95 duration-200">
-          <SettingsPage
-            onBackToIsland={handleBackToIsland}
-            systemInfo={systemInfo}
-            appStatus={appStatus}
-            windowGeometry={windowGeometry}
-          />
-        </div>
-      )}
-    </div>
+        {/* ── Mode 3: Full Settings Interface ─────────────────────────────── */}
+        {mode === "settings" && (
+          <div className="animate-in fade-in zoom-in-95 duration-200">
+            <SettingsPage
+              onBackToIsland={handleBackToIsland}
+              systemInfo={systemInfo}
+              appStatus={appStatus}
+              windowGeometry={windowGeometry}
+            />
+          </div>
+        )}
+      </div>
+    </TooltipProvider>
   );
 }
 

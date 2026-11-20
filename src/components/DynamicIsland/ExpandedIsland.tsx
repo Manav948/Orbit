@@ -1,17 +1,35 @@
 import { useState, useRef, type FormEvent, type ChangeEvent } from "react";
 import {
-  NexoraLogo,
-  SearchIcon,
-  MicrophoneIcon,
-  SettingsIcon,
-  CloseIcon,
-  ChevronUpIcon,
-  GlobeIcon,
-  FinanceIcon,
-  TechIcon,
-  KnowledgeIcon,
-  SparklesIcon,
-} from "../icons";
+  Search,
+  Mic,
+  Settings,
+  X,
+  ChevronUp,
+  Globe,
+  TrendingUp,
+  Cpu,
+  BookOpen,
+  Sparkles,
+  Layers,
+  Check,
+  CornerDownLeft,
+  Volume2,
+} from "lucide-react";
+import { NexoraLogo } from "../icons";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
 import type { CategoryId } from "../../types/desktop";
 
 interface ExpandedIslandProps {
@@ -30,6 +48,7 @@ export function ExpandedIsland({
   const [activeCategoryTitle, setActiveCategoryTitle] = useState<string | null>(null);
   const [submittedQuery, setSubmittedQuery] = useState<string | null>(null);
   const [micActive, setMicActive] = useState(false);
+  const [activeModel, setActiveModel] = useState("Nexora-Frontier-Core");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const categories = [
@@ -38,7 +57,7 @@ export function ExpandedIsland({
       title: "World News",
       desc: "Global geopolitics, breaking dispatches & diplomatic developments",
       badge: "Realtime",
-      icon: <GlobeIcon className="w-4 h-4" />,
+      icon: <Globe className="w-4 h-4" />,
       suggestion: "Summarize top geopolitical events and diplomatic negotiations today",
     },
     {
@@ -46,7 +65,7 @@ export function ExpandedIsland({
       title: "Finance & Markets",
       desc: "Equities, macro indicators, currencies, commodities & bonds",
       badge: "Market Pulse",
-      icon: <FinanceIcon className="w-4 h-4" />,
+      icon: <TrendingUp className="w-4 h-4" />,
       suggestion: "What are key market indices, crude oil, and inflation trends today?",
     },
     {
@@ -54,7 +73,7 @@ export function ExpandedIsland({
       title: "Technology & AI",
       desc: "Autonomous systems, frontier models, semiconductor architecture",
       badge: "Frontier",
-      icon: <TechIcon className="w-4 h-4" />,
+      icon: <Cpu className="w-4 h-4" />,
       suggestion: "Recent breakthroughs in reasoning AI models and silicon chipsets",
     },
     {
@@ -62,7 +81,7 @@ export function ExpandedIsland({
       title: "Daily Knowledge",
       desc: "Mental models, scientific principles, philosophy & deep insights",
       badge: "Synthesis",
-      icon: <KnowledgeIcon className="w-4 h-4" />,
+      icon: <BookOpen className="w-4 h-4" />,
       suggestion: "Explain game theory and Pareto efficiency in concise layman terms",
     },
   ];
@@ -97,16 +116,16 @@ export function ExpandedIsland({
   };
 
   return (
-    <div
+    <Card
       onClick={(e) => e.stopPropagation()}
-      className="w-[660px] max-h-[510px] flex flex-col bg-[#07080b]/98 border border-white/[0.09] hover:border-white/[0.13] rounded-3xl shadow-2xl shadow-black/95 overflow-hidden backdrop-blur-2xl transition-all duration-300 text-neutral-200 select-none"
+      className="w-[660px] max-h-[515px] p-0 gap-0 bg-[#07080b]/98 border-white/[0.09] hover:border-white/[0.13] rounded-3xl shadow-2xl shadow-black/95 overflow-hidden backdrop-blur-2xl transition-all duration-300 text-neutral-200 select-none ring-1 ring-white/[0.04]"
     >
       {/* ── Top Header Bar ─────────────────────────────────────────────── */}
       <div
         data-tauri-drag-region
-        className="flex items-center justify-between px-5 pt-3.5 pb-2.5 border-b border-white/[0.06] cursor-move bg-gradient-to-b from-white/[0.02] to-transparent"
+        className="flex items-center justify-between px-5 pt-3.5 pb-2.5 cursor-move bg-gradient-to-b from-white/[0.02] to-transparent border-b border-white/[0.06]"
       >
-        {/* Brand & Mode */}
+        {/* Brand & Mode Badges */}
         <div className="flex items-center space-x-2.5 pointer-events-none">
           <div className="w-6 h-6 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-sm shadow-amber-500/20">
             <NexoraLogo className="w-3.5 h-3.5" />
@@ -115,116 +134,206 @@ export function ExpandedIsland({
             <span className="font-semibold text-xs tracking-tight text-white">
               Nexora Intelligence
             </span>
-            <span className="text-[9px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/25">
+            <Badge
+              variant="outline"
+              className="h-4 px-1.5 py-0 text-[9px] font-semibold tracking-wider uppercase bg-amber-500/10 text-amber-300 border-amber-500/30 rounded-full"
+            >
               Island Mode
-            </span>
+            </Badge>
           </div>
         </div>
 
-        {/* Status Indicator */}
-        <div className="flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-black/40 border border-white/[0.06] pointer-events-none">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-          <span className="text-[10px] font-medium text-neutral-400">
-            4 Channels Synced
-          </span>
-        </div>
+        {/* Quick Channel / Model Switcher with shadcn DropdownMenu */}
+        <div className="flex items-center space-x-1.5" data-tauri-drag-region="false">
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="xs"
+                  className="h-5 px-2 bg-black/40 border-white/[0.08] hover:bg-white/[0.06] text-[10px] text-neutral-300 gap-1.5 rounded-full"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  <span className="font-medium">{activeModel}</span>
+                  <Layers className="w-2.5 h-2.5 text-neutral-400" />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end" className="w-48 bg-[#0c0d12]/98 border-white/[0.1] text-xs">
+              <DropdownMenuLabel className="text-[10px] uppercase text-neutral-400 font-semibold tracking-wider">
+                Reasoning Engine
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => setActiveModel("Nexora-Frontier-Core")}
+                className="flex items-center justify-between text-xs text-neutral-200 cursor-pointer"
+              >
+                <span>Nexora-Frontier-Core</span>
+                {activeModel === "Nexora-Frontier-Core" && <Check className="w-3.5 h-3.5 text-amber-400" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setActiveModel("Nexora-Fast-Latency")}
+                className="flex items-center justify-between text-xs text-neutral-200 cursor-pointer"
+              >
+                <span>Nexora-Fast-Latency</span>
+                {activeModel === "Nexora-Fast-Latency" && <Check className="w-3.5 h-3.5 text-amber-400" />}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-white/[0.08]" />
+              <DropdownMenuItem
+                onClick={onOpenSettings}
+                className="text-xs text-amber-300 hover:text-amber-200 cursor-pointer"
+              >
+                Configure Custom Engine →
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-        {/* Window Actions */}
-        <div className="flex items-center space-x-1" data-tauri-drag-region="false">
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            title="Open Full Preferences & Settings"
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-amber-300 hover:bg-white/[0.06] transition-colors cursor-pointer"
-          >
-            <SettingsIcon className="w-3.5 h-3.5" />
-          </button>
+          {/* Action Icons using shadcn Button & Tooltip */}
+          <div className="flex items-center space-x-0.5 ml-1">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={onOpenSettings}
+                    className="text-neutral-400 hover:text-amber-300 hover:bg-white/[0.06] rounded-lg"
+                  />
+                }
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Settings & Telemetry</TooltipContent>
+            </Tooltip>
 
-          <button
-            type="button"
-            onClick={onCollapse}
-            title="Collapse to Dynamic Island Pill (Esc)"
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-200 hover:bg-white/[0.06] transition-colors cursor-pointer"
-          >
-            <ChevronUpIcon className="w-3.5 h-3.5" />
-          </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={onCollapse}
+                    className="text-neutral-400 hover:text-neutral-200 hover:bg-white/[0.06] rounded-lg"
+                  />
+                }
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Collapse to Pill (Esc)</TooltipContent>
+            </Tooltip>
 
-          <button
-            type="button"
-            onClick={onCloseWindow}
-            title="Hide Window to System Tray"
-            className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-          >
-            <CloseIcon className="w-3.5 h-3.5" />
-          </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={onCloseWindow}
+                    className="text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg"
+                  />
+                }
+              >
+                <X className="w-3.5 h-3.5" />
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Hide to Tray</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       </div>
 
       {/* ── Main Body ──────────────────────────────────────────────────── */}
-      <div className="px-5 py-3.5 flex flex-col space-y-3.5 overflow-y-auto">
-        {/* Category Context Filter Tag (if active) */}
+      <CardContent className="px-5 py-3.5 flex flex-col space-y-3.5 overflow-y-auto">
+        {/* Active Focus Filter Badge (if selected) */}
         {activeCategoryTitle && (
           <div className="flex items-center justify-between text-xs px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-200 animate-in fade-in duration-150">
-            <span className="flex items-center space-x-1.5">
-              <SparklesIcon className="w-3 h-3 text-amber-400 shrink-0" />
+            <div className="flex items-center space-x-2">
+              <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
               <span className="text-[11px]">
                 Active Focus: <strong className="font-semibold text-amber-300">{activeCategoryTitle}</strong>
               </span>
-            </span>
-            <button
-              type="button"
+            </div>
+            <Button
+              variant="ghost"
+              size="xs"
               onClick={handleClearCategory}
-              className="text-[10px] font-medium text-amber-300/80 hover:text-amber-100 transition-colors cursor-pointer"
+              className="h-5 px-1.5 text-[10px] text-amber-300/80 hover:text-amber-100 hover:bg-amber-500/20"
             >
               Reset ✕
-            </button>
+            </Button>
           </div>
         )}
 
-        {/* Search & Question Input */}
+        {/* Search & Question Input with shadcn Input & Button */}
         <form
           onSubmit={handleSearchSubmit}
-          className="group relative flex items-center bg-[#0c0d12]/90 border border-white/[0.08] hover:border-white/[0.14] focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/30 rounded-2xl px-3.5 py-2.5 shadow-inner transition-all duration-200"
+          className="group relative flex items-center bg-[#0c0d12]/95 border border-white/[0.08] hover:border-white/[0.14] focus-within:border-amber-500/50 focus-within:ring-1 focus-within:ring-amber-500/30 rounded-2xl px-3.5 py-1.5 shadow-inner transition-all duration-200"
         >
-          <SearchIcon className="w-4 h-4 text-neutral-400 group-focus-within:text-amber-400 mr-2.5 shrink-0 transition-colors" />
+          <Search className="w-4 h-4 text-neutral-400 group-focus-within:text-amber-400 mr-2.5 shrink-0 transition-colors" />
 
-          <input
+          <Input
             ref={inputRef}
             type="text"
             value={searchQuery}
             onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
             placeholder="What would you like to know today?"
-            className="flex-1 bg-transparent text-xs font-medium text-white placeholder-neutral-500 focus:outline-none"
+            className="h-8 border-0 bg-transparent px-0 py-0 text-xs font-medium text-white placeholder:text-neutral-500 focus-visible:ring-0 focus-visible:border-0 shadow-none"
           />
 
-          <div className="flex items-center space-x-1.5 shrink-0 ml-2">
+          <div className="flex items-center space-x-1 shrink-0 ml-2">
             {searchQuery && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => {
                   setSearchQuery("");
                   inputRef.current?.focus();
                 }}
-                className="p-1 text-[11px] text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer"
+                className="text-neutral-400 hover:text-neutral-200 rounded-md"
                 title="Clear input"
               >
-                ✕
-              </button>
+                <X className="w-3 h-3" />
+              </Button>
             )}
 
-            {/* Microphone Button */}
-            <button
-              type="button"
-              onClick={handleMicClick}
-              title={micActive ? "Listening (Voice query simulation)..." : "Voice Input"}
-              className={`p-1.5 rounded-xl transition-all duration-200 cursor-pointer ${
-                micActive
-                  ? "bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/50 animate-pulse"
-                  : "text-neutral-400 hover:text-amber-300 hover:bg-white/[0.06]"
-              }`}
-            >
-              <MicrophoneIcon className="w-3.5 h-3.5" />
-            </button>
+            {/* Voice Dictation Button */}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={handleMicClick}
+                    className={`rounded-lg transition-all duration-200 ${
+                      micActive
+                        ? "bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/50 animate-pulse"
+                        : "text-neutral-400 hover:text-amber-300 hover:bg-white/[0.08]"
+                    }`}
+                  />
+                }
+              >
+                {micActive ? <Volume2 className="w-3.5 h-3.5 text-amber-300" /> : <Mic className="w-3.5 h-3.5" />}
+              </TooltipTrigger>
+              <TooltipContent side="top">Voice Query</TooltipContent>
+            </Tooltip>
+
+            {/* Submit Icon Button */}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="submit"
+                    variant="ghost"
+                    size="icon-xs"
+                    disabled={!searchQuery.trim()}
+                    className="text-neutral-400 hover:text-amber-300 hover:bg-amber-500/10 rounded-lg disabled:opacity-40"
+                  />
+                }
+              >
+                <CornerDownLeft className="w-3.5 h-3.5" />
+              </TooltipTrigger>
+              <TooltipContent side="top">Execute Query (Enter)</TooltipContent>
+            </Tooltip>
           </div>
         </form>
 
@@ -237,26 +346,26 @@ export function ExpandedIsland({
                 Query registered: <strong className="text-white font-medium">"{submittedQuery}"</strong>
               </span>
             </div>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="xs"
               onClick={() => setSubmittedQuery(null)}
-              className="text-[10px] text-neutral-400 hover:text-white shrink-0 ml-2 cursor-pointer"
+              className="h-5 px-1.5 text-[10px] text-neutral-400 hover:text-white"
             >
               Dismiss ✕
-            </button>
+            </Button>
           </div>
         )}
 
-        {/* 4 Category Cards */}
+        {/* 4 Categorical Cards using shadcn Card */}
         <div className="grid grid-cols-2 gap-2.5">
           {categories.map((cat) => {
             const isSelected = selectedCategory === cat.id;
             return (
-              <button
+              <Card
                 key={cat.id}
-                type="button"
                 onClick={() => handleSelectCategory(cat.id, cat.title, cat.suggestion)}
-                className={`group text-left p-3 rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col justify-between space-y-2 ${
+                className={`p-3 gap-2 rounded-2xl border transition-all duration-200 cursor-pointer flex flex-col justify-between ${
                   isSelected
                     ? "bg-amber-500/[0.08] border-amber-500/40 shadow-sm shadow-amber-500/10"
                     : "bg-[#0b0c10]/80 hover:bg-[#11131a]/90 border-white/[0.07] hover:border-amber-500/30"
@@ -268,7 +377,7 @@ export function ExpandedIsland({
                       className={`w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
                         isSelected
                           ? "bg-amber-500/20 text-amber-300 border border-amber-400/30"
-                          : "bg-white/[0.04] text-neutral-400 group-hover:text-amber-300 border border-white/[0.06]"
+                          : "bg-white/[0.04] text-neutral-400 border border-white/[0.06]"
                       }`}
                     >
                       {cat.icon}
@@ -277,45 +386,50 @@ export function ExpandedIsland({
                       {cat.title}
                     </span>
                   </div>
-                  <span
-                    className={`text-[9px] font-medium uppercase px-1.5 py-0.5 rounded-full ${
+                  <Badge
+                    variant="outline"
+                    className={`h-4 px-1.5 py-0 text-[9px] font-medium uppercase rounded-full ${
                       isSelected
-                        ? "bg-amber-500/20 text-amber-300 border border-amber-400/30"
-                        : "bg-white/[0.04] text-neutral-400 border border-white/[0.06]"
+                        ? "bg-amber-500/20 text-amber-300 border-amber-400/30"
+                        : "bg-white/[0.04] text-neutral-400 border-white/[0.06]"
                     }`}
                   >
                     {cat.badge}
-                  </span>
+                  </Badge>
                 </div>
                 <p className="text-[10px] text-neutral-400 line-clamp-2 leading-relaxed">
                   {cat.desc}
                 </p>
-              </button>
+              </Card>
             );
           })}
         </div>
-      </div>
+      </CardContent>
 
-      {/* ── Footer Briefing Status Bar ─────────────────────────────────── */}
-      <div className="flex items-center justify-between px-5 py-2.5 border-t border-white/[0.06] bg-black/40 text-[10px] text-neutral-400">
+      <Separator className="bg-white/[0.06]" />
+
+      {/* ── Footer Telemetry Bar ───────────────────────────────────────── */}
+      <div className="flex items-center justify-between px-5 py-2.5 bg-black/40 text-[10px] text-neutral-400">
         <div className="flex items-center space-x-2">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
           <span>Briefing updated • All telemetry nominal</span>
         </div>
 
         <div className="flex items-center space-x-3">
-          <span className="text-neutral-500">Toggle: <kbd className="px-1 py-0.5 rounded bg-white/[0.06] text-neutral-300 font-mono text-[9px]">Alt+Space</kbd></span>
-          <button
-            type="button"
+          <span className="text-neutral-500">
+            Toggle: <kbd className="px-1.5 py-0.5 rounded bg-white/[0.06] text-neutral-300 font-mono text-[9px]">Alt+Space</kbd>
+          </span>
+          <Button
+            variant="ghost"
+            size="xs"
             onClick={onCollapse}
-            className="flex items-center space-x-1 text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+            className="h-5 px-2 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 gap-1"
           >
             <span>Collapse</span>
-            <ChevronUpIcon className="w-3 h-3" />
-          </button>
+            <ChevronUp className="w-3 h-3" />
+          </Button>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
-
