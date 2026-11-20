@@ -1,8 +1,8 @@
 mod commands;
 
 use commands::system::{
-    get_app_status, get_system_info, get_window_geometry, hide_window, ping,
-    position_window_top_center, set_island_geometry, show_window,
+    get_app_status, get_system_info, get_window_geometry, hide_window, is_shortcut_registered,
+    ping, position_window_top_center, register_shortcut, set_island_geometry, show_window,
 };
 use tauri::{
     menu::{Menu, MenuItem},
@@ -11,13 +11,16 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-/// Toggle the main Nexora window: show + focus if hidden, hide if visible.
+/// Toggle the main Nexora window: show + focus if hidden or unfocused, hide if visible and focused.
 fn toggle_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let visible = window.is_visible().unwrap_or(false);
-        if visible {
+        let is_visible = window.is_visible().unwrap_or(false);
+        let is_focused = window.is_focused().unwrap_or(false);
+
+        if is_visible && is_focused {
             let _ = window.hide();
         } else {
+            let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
         }
@@ -32,6 +35,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -43,8 +47,12 @@ pub fn run() {
                 let _ = position_window_top_center(&window, 360.0, 48.0, 12.0);
             }
 
-            // 1. Register Alt+Space global shortcut
+            // 1. Register Alt+Space global shortcut (avoiding duplicate registrations)
             let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+            if app.global_shortcut().is_registered(shortcut) {
+                let _ = app.global_shortcut().unregister(shortcut);
+            }
+
             if let Err(err) = app.global_shortcut().on_shortcut(shortcut, |app, _shortcut, event| {
                 // Only fire on key-press (not release) to avoid double-toggle
                 if event.state() == ShortcutState::Pressed {
@@ -74,6 +82,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => {
                         if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.unminimize();
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
@@ -81,6 +90,7 @@ pub fn run() {
                     "settings" => {
                         // Open settings view in the main window
                         if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.unminimize();
                             let _ = window.show();
                             let _ = window.set_focus();
                             let _ = window.emit("open-settings", ());
@@ -122,7 +132,9 @@ pub fn run() {
             hide_window,
             show_window,
             get_window_geometry,
-            set_island_geometry
+            set_island_geometry,
+            register_shortcut,
+            is_shortcut_registered
         ])
         .run(tauri::generate_context!())
         .expect("error while running Nexora application");

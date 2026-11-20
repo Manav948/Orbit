@@ -164,5 +164,36 @@ export const tauriBridge = {
       console.warn("Failed to set island geometry:", err);
     }
   },
+
+  /**
+   * Dynamically configures a custom global keyboard shortcut.
+   */
+  async registerShortcut(shortcutStr: string): Promise<void> {
+    if (!isTauriEnvironment()) {
+      console.info(`[Web Preview] Shortcut registered: '${shortcutStr}'`);
+      return;
+    }
+
+    try {
+      await invoke("register_shortcut", { shortcutStr });
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * Checks whether a global shortcut is currently registered.
+   */
+  async isShortcutRegistered(shortcutStr: string): Promise<boolean> {
+    if (!isTauriEnvironment()) {
+      return true;
+    }
+
+    try {
+      return await invoke<boolean>("is_shortcut_registered", { shortcutStr });
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
 };
 

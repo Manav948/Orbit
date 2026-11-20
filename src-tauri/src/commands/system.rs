@@ -149,4 +149,52 @@ pub fn get_window_geometry(window: tauri::Window) -> Result<WindowGeometry, Stri
     })
 }
 
+/// Dynamically registers a custom global shortcut string (e.g. "Alt+Space" or "Super+Shift+N").
+#[tauri::command]
+pub fn register_shortcut(app: tauri::AppHandle, shortcut_str: String) -> Result<(), String> {
+    use std::str::FromStr;
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+    use tauri::Manager;
+
+    let shortcut = Shortcut::from_str(&shortcut_str)
+        .map_err(|e| format!("Invalid shortcut string '{}': {:?}", shortcut_str, e))?;
+
+    if app.global_shortcut().is_registered(shortcut) {
+        let _ = app.global_shortcut().unregister(shortcut);
+    }
+
+    app.global_shortcut()
+        .on_shortcut(shortcut, |app, _shortcut, event| {
+            if event.state() == ShortcutState::Pressed {
+                if let Some(window) = app.get_webview_window("main") {
+                    let is_visible = window.is_visible().unwrap_or(false);
+                    let is_focused = window.is_focused().unwrap_or(false);
+                    if is_visible && is_focused {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        })
+        .map_err(|e| format!("Failed to register shortcut: {}", e))?;
+
+    Ok(())
+}
+
+/// Queries whether a given shortcut is currently registered.
+#[tauri::command]
+pub fn is_shortcut_registered(app: tauri::AppHandle, shortcut_str: String) -> Result<bool, String> {
+    use std::str::FromStr;
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+
+    let shortcut = Shortcut::from_str(&shortcut_str)
+        .map_err(|e| format!("Invalid shortcut string '{}': {:?}", shortcut_str, e))?;
+
+    Ok(app.global_shortcut().is_registered(shortcut))
+}
+
+
 
