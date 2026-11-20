@@ -12,7 +12,7 @@ export function FooterBar() {
           }`}
         />
         <span>
-          {isNative ? "Nexora Host Active" : "Web Preview Mode"}
+          {isNative ? "Orbit Host Active" : "Web Preview Mode"}
         </span>
       </div>
 

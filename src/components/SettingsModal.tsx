@@ -18,7 +18,7 @@ export function SettingsModal({
   appStatus,
   windowGeometry,
 }: SettingsModalProps) {
-  const [pingInput, setPingInput] = useState("Nexora Native Diagnostic");
+  const [pingInput, setPingInput] = useState("Orbit Native Diagnostic");
   const [pingResponse, setPingResponse] = useState<string | null>(null);
   const [pingError, setPingError] = useState<string | null>(null);
   const [isPinging, setIsPinging] = useState(false);
@@ -52,7 +52,7 @@ export function SettingsModal({
           <div className="flex items-center space-x-2">
             <SettingsIcon className="w-4 h-4 text-sky-400" />
             <h2 className="text-sm font-semibold text-slate-100">
-              Nexora Settings & Diagnostics
+              Orbit Settings & Diagnostics
             </h2>
           </div>
           <button

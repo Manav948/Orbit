@@ -5,12 +5,31 @@ import { CollapsedIsland } from "./components/DynamicIsland/CollapsedIsland";
 import { ExpandedIsland } from "./components/DynamicIsland/ExpandedIsland";
 import { SettingsPage } from "./components/Settings/SettingsPage";
 import { useDesktopStatus } from "./hooks/useDesktopStatus";
+import { usePreferences } from "./hooks/usePreferences";
 import { tauriBridge, isTauriEnvironment } from "./services/tauriBridge";
 
 export type IslandMode = "collapsed" | "expanded" | "settings";
 
 export function App() {
   const { systemInfo, appStatus, windowGeometry } = useDesktopStatus();
+  const {
+    preferences,
+    accent,
+    setLaunchAtStartup,
+    setStartMinimized,
+    setCloseBehavior,
+    setAutoCheckUpdates,
+    setTheme,
+    setAccentColor,
+    setEnableAnimations,
+    setDefaultIslandMode,
+    toggleCategory,
+    toggleNotification,
+    updateShortcut,
+    restoreDefaultShortcut,
+    resetAllPreferences,
+  } = usePreferences();
+
   const [mode, setMode] = useState<IslandMode>("collapsed");
   const [webNotice, setWebNotice] = useState(false);
 
@@ -33,7 +52,7 @@ export function App() {
     await tauriBridge.hideWindow();
   };
 
-  // 1. Listen for native system tray "Settings" event
+  // Listen for native system tray "Settings" event
   useEffect(() => {
     if (!isTauriEnvironment()) return;
     let unlisten: (() => void) | undefined;
@@ -47,7 +66,7 @@ export function App() {
     };
   }, [transitionTo]);
 
-  // 2. Global Keyboard Handlers (e.g. Escape collapses or returns to island)
+  // Global Keyboard Handlers (Escape collapses or returns to island)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -60,10 +79,9 @@ export function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mode, transitionTo]);
 
-  // 3. Click outside in OS: If the window loses focus while expanded, collapse to compact pill
+  // If window loses focus while expanded, collapse to compact pill
   useEffect(() => {
     const handleBlur = () => {
-      // Only auto-collapse expanded island when clicking away; leave settings open if user is inspecting
       if (mode === "expanded") {
         transitionTo("collapsed");
       }
@@ -99,7 +117,7 @@ export function App() {
         {/* ── Mode 1: Collapsed Dynamic Island Pill ────────────────────────── */}
         {mode === "collapsed" && (
           <div className="animate-in fade-in zoom-in-95 duration-200">
-            <CollapsedIsland onExpand={handleExpand} statusText="Ready" isOnline={true} />
+            <CollapsedIsland onExpand={handleExpand} />
           </div>
         )}
 
@@ -110,6 +128,8 @@ export function App() {
               onCollapse={handleCollapse}
               onOpenSettings={handleOpenSettings}
               onCloseWindow={handleCloseWindow}
+              preferences={preferences}
+              accent={accent}
             />
           </div>
         )}
@@ -122,6 +142,21 @@ export function App() {
               systemInfo={systemInfo}
               appStatus={appStatus}
               windowGeometry={windowGeometry}
+              preferences={preferences}
+              accent={accent}
+              onSetLaunchAtStartup={setLaunchAtStartup}
+              onSetStartMinimized={setStartMinimized}
+              onSetCloseBehavior={setCloseBehavior}
+              onSetAutoCheckUpdates={setAutoCheckUpdates}
+              onSetTheme={setTheme}
+              onSetAccentColor={setAccentColor}
+              onSetEnableAnimations={setEnableAnimations}
+              onSetDefaultIslandMode={setDefaultIslandMode}
+              onToggleCategory={toggleCategory}
+              onToggleNotification={toggleNotification}
+              onUpdateShortcut={updateShortcut}
+              onRestoreDefaultShortcut={restoreDefaultShortcut}
+              onResetAllPreferences={resetAllPreferences}
             />
           </div>
         )}

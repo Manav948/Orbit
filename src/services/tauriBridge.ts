@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SystemInfo, AppStatus, WindowGeometry, AppError } from "../types/desktop";
+import type { SystemInfo, AppStatus, WindowGeometry, AppError, UserPreferences } from "../types/desktop";
+import { DEFAULT_PREFERENCES } from "../types/desktop";
 
 /**
  * Checks whether the application is running inside a Tauri window runtime.
@@ -191,6 +192,88 @@ export const tauriBridge = {
 
     try {
       return await invoke<boolean>("is_shortcut_registered", { shortcutStr });
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * Fetches persisted user preferences from native disk storage.
+   */
+  async getPreferences(): Promise<UserPreferences> {
+    if (!isTauriEnvironment()) {
+      const stored = localStorage.getItem("nexora_preferences");
+      if (stored) {
+        try {
+          return { ...DEFAULT_PREFERENCES, ...JSON.parse(stored) };
+        } catch {}
+      }
+      return DEFAULT_PREFERENCES;
+    }
+
+    try {
+      const prefs = await invoke<UserPreferences>("get_preferences");
+      localStorage.setItem("nexora_preferences", JSON.stringify(prefs));
+      return prefs;
+    } catch (err) {
+      console.warn("Failed to load native preferences, using fallback:", err);
+      const stored = localStorage.getItem("nexora_preferences");
+      if (stored) {
+        try {
+          return { ...DEFAULT_PREFERENCES, ...JSON.parse(stored) };
+        } catch {}
+      }
+      return DEFAULT_PREFERENCES;
+    }
+  },
+
+  /**
+   * Persists user preferences to native disk storage.
+   */
+  async savePreferences(preferences: UserPreferences): Promise<void> {
+    localStorage.setItem("nexora_preferences", JSON.stringify(preferences));
+
+    if (!isTauriEnvironment()) {
+      console.info("[Web Preview] Preferences saved to localStorage");
+      return;
+    }
+
+    try {
+      await invoke("save_preferences", { preferences });
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * Configures Windows registry autostart for Nexora.
+   */
+  async setLaunchAtStartup(enabled: boolean): Promise<void> {
+    if (!isTauriEnvironment()) {
+      console.info(`[Web Preview] Autostart set to ${enabled}`);
+      return;
+    }
+
+    try {
+      await invoke("set_launch_at_startup", { enabled });
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * Updates global keyboard shortcut with automatic fallback rollback on conflict.
+   */
+  async updateGlobalShortcut(newShortcutStr: string, previousShortcutStr: string): Promise<string> {
+    if (!isTauriEnvironment()) {
+      return `Simulated shortcut update to ${newShortcutStr}`;
+    }
+
+    try {
+      return await invoke<string>("update_global_shortcut", {
+        newShortcutStr,
+        previousShortcutStr,
+      });
     } catch (err) {
       throw normalizeError(err);
     }

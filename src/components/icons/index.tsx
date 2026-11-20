@@ -1,6 +1,6 @@
 import type { SVGProps } from "react";
 
-export function NexoraLogo(props: SVGProps<SVGSVGElement>) {
+export function OrbitLogo(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -11,17 +11,12 @@ export function NexoraLogo(props: SVGProps<SVGSVGElement>) {
       strokeLinejoin="round"
       {...props}
     >
-      <circle cx="12" cy="12" r="9" className="stroke-sky-400/30" />
-      <path
-        d="M12 3a9 9 0 0 1 9 9m-9 9a9 9 0 0 1-9-9"
-        className="stroke-sky-400"
-      />
-      <circle cx="12" cy="12" r="4" className="stroke-indigo-400 fill-indigo-500/20" />
-      <path d="M12 8v8M8 12h8" className="stroke-sky-300" />
+      <circle cx="12" cy="12" r="2.5" className="fill-current stroke-current" />
+      <ellipse cx="12" cy="12" rx="10" ry="4.5" transform="rotate(-35 12 12)" className="stroke-current" />
+      <circle cx="19.8" cy="7" r="1.4" className="fill-current stroke-current" />
     </svg>
   );
 }
-
 export function SearchIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg

@@ -1,4 +1,4 @@
-import { NexoraLogo, SettingsIcon, CloseIcon } from "./icons";
+import { OrbitLogo, SettingsIcon, CloseIcon } from "./icons";
 
 interface HeaderProps {
   onOpenSettings: () => void;
@@ -14,11 +14,11 @@ export function Header({ onOpenSettings, onCloseWindow }: HeaderProps) {
       {/* Brand Identity */}
       <div className="flex items-center space-x-2.5 pointer-events-none">
         <div className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-400/20 flex items-center justify-center text-sky-400 shadow-sm shadow-sky-500/10">
-          <NexoraLogo className="w-4 h-4" />
+          <OrbitLogo className="w-4 h-4" />
         </div>
         <div className="flex items-center space-x-2">
           <span className="font-semibold text-sm tracking-tight bg-gradient-to-r from-slate-100 via-slate-200 to-slate-400 bg-clip-text text-transparent">
-            Nexora
+            Orbit
           </span>
           <span className="text-[10px] font-medium tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20">
             Assistant
