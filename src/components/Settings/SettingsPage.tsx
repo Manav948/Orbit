@@ -169,39 +169,43 @@ export function SettingsPage({
   const handleApplyShortcut = async () => {
     setIsSavingShortcut(true);
     setShortcutFeedback(null);
-    const result = await onUpdateShortcut(shortcutInput);
-    setIsSavingShortcut(false);
-
-    if (result.success) {
+    try {
+      const result = await onUpdateShortcut(shortcutInput);
       setShortcutFeedback({
-        type: "success",
-        message: result.message || `Successfully registered '${shortcutInput}'!`,
+        type: result.success ? "success" : "error",
+        message: result.message || (result.success
+          ? `Successfully registered '${shortcutInput}'!`
+          : "Could not register this shortcut. Check the key combination and try again."),
       });
-    } else {
+    } catch (err) {
       setShortcutFeedback({
         type: "error",
-        message: result.message || "Failed to register shortcut with Windows.",
+        message: err instanceof Error ? err.message : "Could not register this shortcut. Try a different key combination.",
       });
+    } finally {
+      setIsSavingShortcut(false);
     }
   };
 
   const handleRestoreDefault = async () => {
     setIsSavingShortcut(true);
     setShortcutFeedback(null);
-    const result = await onRestoreDefaultShortcut();
-    setIsSavingShortcut(false);
-    setShortcutInput("Alt+Space");
-
-    if (result.success) {
+    try {
+      const result = await onRestoreDefaultShortcut();
+      if (result.success) setShortcutInput("Alt+Space");
       setShortcutFeedback({
-        type: "success",
-        message: "Restored default global shortcut: Alt+Space",
+        type: result.success ? "success" : "error",
+        message: result.success
+          ? "Restored default global shortcut: Alt+Space."
+          : result.message || "Could not restore Alt+Space. Try applying it again.",
       });
-    } else {
+    } catch (err) {
       setShortcutFeedback({
         type: "error",
-        message: result.message || "Failed to restore Alt+Space.",
+        message: err instanceof Error ? err.message : "Could not restore Alt+Space. Try again.",
       });
+    } finally {
+      setIsSavingShortcut(false);
     }
   };
 
@@ -616,15 +620,15 @@ export function SettingsPage({
                 </p>
               </div>
 
-              {/* Main Global Shortcut Card */}
-              <Card className="p-4 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-3">
+              {/* Active global shortcut and editor */}
+              <Card className="p-4 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-3.5">
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <span className="text-xs font-medium text-white block">
-                      Toggle Dynamic Island Hotkey
+                      Global toggle shortcut
                     </span>
                     <span className="text-[10px] text-neutral-400 block">
-                      Press anywhere in Windows to expand or hide Orbit instantly.
+                      Use this shortcut anywhere to show or hide Orbit.
                     </span>
                   </div>
                   <Badge
@@ -637,17 +641,21 @@ export function SettingsPage({
 
                 <Separator className="bg-white/[0.06]" />
 
-                {/* Shortcut Editor / Recorder */}
+                {/* Shortcut editor and actions */}
                 <div className="space-y-2">
+                  <label htmlFor="shortcut-recorder" className="text-[10px] font-medium text-neutral-400">
+                    New shortcut
+                  </label>
                   <div className="flex items-center space-x-2">
                     <div className="relative flex-1">
                       <Input
+                        id="shortcut-recorder"
                         ref={recordInputRef}
                         type="text"
-                        value={isRecording ? "Press combination now (or Esc to cancel)..." : shortcutInput}
+                        value={shortcutInput}
                         onChange={(e) => setShortcutInput(e.target.value)}
                         onKeyDown={isRecording ? handleKeyDownRecording : undefined}
-                        placeholder="e.g. Alt+Space, Ctrl+Shift+N"
+                        placeholder="e.g. Alt+Space or Ctrl+Shift+N"
                         className={`h-9 text-xs font-mono bg-black/50 border-white/[0.1] rounded-xl text-neutral-200 ${
                           isRecording ? `border-amber-400 ring-2 ring-amber-400/30 text-amber-300 animate-pulse` : ""
                         }`}
@@ -674,15 +682,15 @@ export function SettingsPage({
                       onClick={handleApplyShortcut}
                       className={`h-9 px-3 text-xs rounded-xl font-medium ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} hover:bg-white/[0.08]`}
                     >
-                      {isSavingShortcut ? "Testing..." : "Apply & Save"}
+                      {isSavingShortcut ? "Saving…" : "Apply shortcut"}
                     </Button>
                   </div>
 
                   <div className="flex items-center justify-between text-[10px] text-neutral-500 pt-1">
                     <span>
-                      Supported modifiers: <kbd className="font-mono text-neutral-400">Alt</kbd>,{" "}
-                      <kbd className="font-mono text-neutral-400">Ctrl</kbd>,{" "}
-                      <kbd className="font-mono text-neutral-400">Shift</kbd>
+                      {isRecording
+                        ? "Recording… press a key combination (Esc cancels)."
+                        : "Example: Alt+Space or Ctrl+Shift+N. Include a modifier."}
                     </span>
 
                     <Button
@@ -694,7 +702,7 @@ export function SettingsPage({
                       className="h-5 px-1.5 text-[10px] text-neutral-400 hover:text-white gap-1"
                     >
                       <RotateCcw className="w-3 h-3" />
-                      <span>Restore Default (Alt+Space)</span>
+                      <span>Restore default</span>
                     </Button>
                   </div>
                 </div>
@@ -724,38 +732,36 @@ export function SettingsPage({
                 )}
               </Card>
 
-              {/* Secondary Reserved Keybindings */}
+              {/* Built-in shortcuts */}
               <div className="space-y-2">
-                <span className="text-xs font-medium text-neutral-400 block px-1">
-                  Built-in Context Keybindings
-                </span>
+                <span className="text-xs font-medium text-neutral-400 block px-1">Built-in shortcuts</span>
 
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
-                  <div className="space-y-0.5">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
+                  <div className="min-w-0 space-y-0.5">
                     <span className="text-xs font-medium text-white block">
-                      Collapse to Dynamic Island Pill
+                      Collapse island
                     </span>
                     <span className="text-[10px] text-neutral-400 block">
-                      Closes the expanded panel back to the compact pill.
+                      Return from the expanded panel to the pill.
                     </span>
                   </div>
-                  <Badge variant="outline" className="px-2.5 py-0.5 font-mono text-xs text-neutral-300">
-                    Escape
-                  </Badge>
+                  <Button type="button" variant="outline" className="h-7 min-w-14 shrink-0 px-3 font-mono text-xs bg-black/30 border-white/[0.1] text-neutral-200">
+                    Esc
+                  </Button>
                 </Card>
 
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
-                  <div className="space-y-0.5">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
+                  <div className="min-w-0 space-y-0.5">
                     <span className="text-xs font-medium text-white block">
-                      Execute Query / Submit Search
+                      Submit search
                     </span>
                     <span className="text-[10px] text-neutral-400 block">
-                      Dispatches the typed prompt to the intelligence engine.
+                      Submit the current query from the search field.
                     </span>
                   </div>
-                  <Badge variant="outline" className="px-2.5 py-0.5 font-mono text-xs text-neutral-300">
+                  <Button type="button" variant="outline" className="h-7 min-w-14 shrink-0 px-3 font-mono text-xs bg-black/30 border-white/[0.1] text-neutral-200">
                     Enter
-                  </Badge>
+                  </Button>
                 </Card>
               </div>
             </div>

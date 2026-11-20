@@ -202,15 +202,13 @@ export function usePreferences() {
       // Basic structure validation: check for modifiers and main key
       const parts = trimmed.split("+").map((p) => p.trim());
       const modifiers = ["alt", "ctrl", "control", "shift", "super", "win", "meta", "command"];
-      const hasModifier = parts.some((part) =>
-        modifiers.includes(part.toLowerCase())
-      );
+      const hasModifier = parts.some((part) => modifiers.includes(part.toLowerCase()));
+      const hasMainKey = parts.some((part) => part && !modifiers.includes(part.toLowerCase()));
 
-      if (!hasModifier || parts.length < 2) {
+      if (parts.some((part) => !part) || !hasModifier || !hasMainKey) {
         return {
           success: false,
-          message:
-            "Invalid combination. Must include at least one modifier (e.g. Alt, Ctrl, Shift) and a key (e.g. 'Alt+Space').",
+          message: "Enter a valid shortcut with one key and at least one modifier, such as Alt+Space or Ctrl+Shift+K.",
         };
       }
 
