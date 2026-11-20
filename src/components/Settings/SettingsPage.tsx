@@ -263,18 +263,6 @@ export function SettingsPage({
             <ArrowLeft className="w-3.5 h-3.5" />
           </Button>
 
-          <Separator orientation="vertical" className="h-4 bg-white/[0.1]" />
-
-          <div className="flex items-center space-x-2">
-            <div
-              className={`w-5 h-5 rounded-full ${accent.bgSubtle} border ${accent.borderSubtle} flex items-center justify-center ${accent.text}`}
-            >
-              <OrbitLogo className="w-3 h-3" />
-            </div>
-            <h1 className="text-xs font-semibold text-white tracking-tight">
-              Orbit Personalization & Settings
-            </h1>
-          </div>
         </div>
 
         <Tooltip>
@@ -298,8 +286,19 @@ export function SettingsPage({
       <div className="flex flex-1 min-h-0">
         {/* Sidebar Navigation */}
         <div className="w-56 p-3 border-r border-white/[0.06] bg-black/30 flex flex-col justify-between">
-          <div className="space-y-1">
-            {navItems.map((item) => {
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 px-3 py-1.5">
+              <div className={`w-5 h-5 rounded-full ${accent.bgSubtle} border ${accent.borderSubtle} flex items-center justify-center ${accent.text}`}>
+                <OrbitLogo className="w-3 h-3" />
+              </div>
+              <h1 className="text-xs font-semibold text-white tracking-tight">Settings</h1>
+            </div>
+            <Separator
+              className="my-2 h-px bg-neutral-300 dark:bg-white/15"
+              style={{ width: "calc(100% + 24px)", marginLeft: "-12px" }}
+            />
+            <div className="space-y-1">
+              {navItems.map((item) => {
               const active = activeTab === item.id;
               return (
                 <Button
@@ -318,7 +317,8 @@ export function SettingsPage({
                   <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
                 </Button>
               );
-            })}
+              })}
+            </div>
           </div>
 
           {/* Quick Telemetry Footnote */}
@@ -332,7 +332,8 @@ export function SettingsPage({
         </div>
 
         {/* Content Pane with shadcn ScrollArea */}
-        <ScrollArea className="flex-1 p-5">
+        <ScrollArea className="flex-1 min-w-0">
+          <div className="min-h-full p-5">
           {/* ════════════════════════════════════════════════════════════════ */}
           {/* 1. GENERAL TAB                                                  */}
           {/* ════════════════════════════════════════════════════════════════ */}
@@ -560,7 +561,7 @@ export function SettingsPage({
 
               {/* Default Island Mode & Animation Toggle */}
               <div className="grid grid-cols-2 gap-2.5">
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="space-y-0.5">
                     <span className="text-xs font-medium text-white block">
                       Default Startup State
@@ -589,7 +590,7 @@ export function SettingsPage({
                   </Button>
                 </Card>
 
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="space-y-0.5">
                     <span className="text-xs font-medium text-white block">
                       Smooth Animations
@@ -789,7 +790,7 @@ export function SettingsPage({
 
               <div className="space-y-2">
                 {/* 1. World News */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
                     <div className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
                       <Globe className="w-4 h-4" />
@@ -810,7 +811,7 @@ export function SettingsPage({
                 </Card>
 
                 {/* 2. Finance & Markets */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
                     <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
                       <TrendingUp className="w-4 h-4" />
@@ -831,7 +832,7 @@ export function SettingsPage({
                 </Card>
 
                 {/* 3. Technology & AI */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
                     <div className="w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
                       <Cpu className="w-4 h-4" />
@@ -852,7 +853,7 @@ export function SettingsPage({
                 </Card>
 
                 {/* 4. Daily Knowledge */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
                     <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
                       <BookOpen className="w-4 h-4" />
@@ -873,7 +874,7 @@ export function SettingsPage({
                 </Card>
 
                 {/* 5. Business & Commerce */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
                     <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
                       <Briefcase className="w-4 h-4" />
@@ -894,7 +895,7 @@ export function SettingsPage({
                 </Card>
 
                 {/* 6. Science & Space */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
                     <div className="w-7 h-7 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
                       <Microscope className="w-4 h-4" />
@@ -930,7 +931,7 @@ export function SettingsPage({
               </div>
 
               <div className="space-y-2.5">
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="space-y-0.5">
                     <span className="text-xs font-medium text-white block">
                       Breaking News Dispatches
@@ -945,7 +946,7 @@ export function SettingsPage({
                   />
                 </Card>
 
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="space-y-0.5">
                     <span className="text-xs font-medium text-white block">
                       Daily Morning Briefing
@@ -960,7 +961,7 @@ export function SettingsPage({
                   />
                 </Card>
 
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="space-y-0.5">
                     <span className="text-xs font-medium text-white block">
                       Market Movement & Volatility
@@ -975,7 +976,7 @@ export function SettingsPage({
                   />
                 </Card>
 
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                   <div className="space-y-0.5 flex items-center space-x-3">
                     <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-neutral-300">
                       {preferences.notifications.sound_enabled ? (
@@ -1137,6 +1138,7 @@ export function SettingsPage({
               </Card>
             </div>
           )}
+          </div>
         </ScrollArea>
       </div>
     </Card>
