@@ -1,24 +1,24 @@
-# Desktop Intelligence Assistant
+# Nexora - Floating Desktop Assistant
 
-A lightweight, production-oriented Windows desktop application initialized with **Tauri 2**, **React 19**, **TypeScript**, **Vite**, **Tailwind CSS v4**, and **Rust**.
+A lightweight, modern, and production-oriented Windows floating desktop assistant built with **Tauri 2**, **React 19**, **TypeScript**, **Vite**, **Tailwind CSS v4**, and **Rust**.
 
 ---
 
 ## 🏛️ Architecture Overview
 
-The application strictly separates presentation from native operating system logic:
+The application implements a compact (720 × 560 px) floating palette interface with native window management:
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│                   React 19 (UI Layer)                  │
-│       Components ──► Hooks ──► Typed Tauri Bridge      │
+│               Nexora React 19 (UI Layer)               │
+│   Header ─► SearchArea ─► CategoryGrid ─► SettingsModal │
 └───────────────────────────┬────────────────────────────┘
                             │
-               Tauri 2 IPC (JSON RPC / Commands)
+               Tauri 2 IPC (JSON RPC / Native Bridge)
                             │
 ┌───────────────────────────▼────────────────────────────┐
 │                    Rust Native Core                    │
-│   Commands (System, Diagnostics) ──► Native Win32 OS    │
+│   Commands (Window Mgmt, Telemetry) ──► Win32 OS       │
 └────────────────────────────────────────────────────────┘
 ```
 

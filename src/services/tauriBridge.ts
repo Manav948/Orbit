@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SystemInfo, AppStatus, AppError } from "../types/desktop";
+import type { SystemInfo, AppStatus, WindowGeometry, AppError } from "../types/desktop";
 
 /**
  * Checks whether the application is running inside a Tauri window runtime.
@@ -92,6 +92,76 @@ export const tauriBridge = {
       return await invoke<string>("ping", { message });
     } catch (err) {
       throw normalizeError(err);
+    }
+  },
+
+  /**
+   * Hides the native desktop floating window.
+   */
+  async hideWindow(): Promise<void> {
+    if (!isTauriEnvironment()) {
+      console.info("[Web Preview] hideWindow invoked (window hidden in native mode)");
+      return;
+    }
+
+    try {
+      await invoke("hide_window");
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * Shows and focuses the native desktop floating window.
+   */
+  async showWindow(): Promise<void> {
+    if (!isTauriEnvironment()) {
+      console.info("[Web Preview] showWindow invoked");
+      return;
+    }
+
+    try {
+      await invoke("show_window");
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * Retrieves native window dimensions and coordinates.
+   */
+  async getWindowGeometry(): Promise<WindowGeometry> {
+    if (!isTauriEnvironment()) {
+      return {
+        width: 360,
+        height: 48,
+        x: Math.round((window.screen.availWidth - 360) / 2),
+        y: 12,
+        scale_factor: window.devicePixelRatio || 1,
+      };
+    }
+
+    try {
+      return await invoke<WindowGeometry>("get_window_geometry");
+    } catch (err) {
+      throw normalizeError(err);
+    }
+  },
+
+  /**
+   * Updates the native window size and position for Dynamic Island states:
+   * "collapsed" (360x48), "expanded" (680x520), or "settings" (780x560).
+   */
+  async setIslandGeometry(state: "collapsed" | "expanded" | "settings"): Promise<void> {
+    if (!isTauriEnvironment()) {
+      console.info(`[Web Preview] Island geometry set to '${state}'`);
+      return;
+    }
+
+    try {
+      await invoke("set_island_geometry", { state });
+    } catch (err) {
+      console.warn("Failed to set island geometry:", err);
     }
   },
 };

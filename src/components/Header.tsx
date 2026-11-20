@@ -1,48 +1,51 @@
-import { StatusBadge } from "./common/StatusBadge";
-import { isTauriEnvironment } from "../services/tauriBridge";
+import { NexoraLogo, SettingsIcon, CloseIcon } from "./icons";
 
 interface HeaderProps {
-  appVersion?: string;
-  isOnline: boolean;
+  onOpenSettings: () => void;
+  onCloseWindow: () => void;
 }
 
-export function Header({ appVersion = "0.1.0", isOnline }: HeaderProps) {
-  const isNative = isTauriEnvironment();
-
+export function Header({ onOpenSettings, onCloseWindow }: HeaderProps) {
   return (
-    <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-10 px-6 py-4">
-      <div className="flex items-center justify-between max-w-6xl mx-auto">
-        <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-lg bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400 font-bold text-lg">
-            DIA
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-base font-bold text-slate-100 tracking-tight">
-                Desktop Intelligence Assistant
-              </h1>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                v{appVersion}
-              </span>
-            </div>
-            <p className="text-xs text-slate-400">
-              Windows Native Host &bull; Tauri 2 &bull; React &bull; Rust
-            </p>
-          </div>
+    <header
+      data-tauri-drag-region
+      className="flex items-center justify-between px-5 pt-4 pb-3 select-none cursor-move border-b border-slate-800/60"
+    >
+      {/* Brand Identity */}
+      <div className="flex items-center space-x-2.5 pointer-events-none">
+        <div className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-400/20 flex items-center justify-center text-sky-400 shadow-sm shadow-sky-500/10">
+          <NexoraLogo className="w-4 h-4" />
         </div>
+        <div className="flex items-center space-x-2">
+          <span className="font-semibold text-sm tracking-tight bg-gradient-to-r from-slate-100 via-slate-200 to-slate-400 bg-clip-text text-transparent">
+            Nexora
+          </span>
+          <span className="text-[10px] font-medium tracking-wide uppercase px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20">
+            Assistant
+          </span>
+        </div>
+      </div>
 
-        <div className="flex items-center space-x-3">
-          <StatusBadge
-            status={isNative ? "success" : "neutral"}
-            label={isNative ? "Native Desktop Host" : "Web Preview Host"}
-          />
-          <StatusBadge
-            status={isOnline ? "success" : "warning"}
-            label={isOnline ? "Online" : "Connecting"}
-          />
-        </div>
+      {/* Action Controls */}
+      <div className="flex items-center space-x-1" data-tauri-drag-region="false">
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          title="Settings & System Diagnostics"
+          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/70 active:bg-slate-800 transition-colors cursor-pointer"
+        >
+          <SettingsIcon className="w-4 h-4" />
+        </button>
+
+        <button
+          type="button"
+          onClick={onCloseWindow}
+          title="Hide Window"
+          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-300 hover:bg-rose-500/10 active:bg-rose-500/20 transition-colors cursor-pointer"
+        >
+          <CloseIcon className="w-4 h-4" />
+        </button>
       </div>
     </header>
   );
 }
-

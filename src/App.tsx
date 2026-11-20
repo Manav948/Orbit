@@ -1,62 +1,128 @@
-import { Header } from "./components/Header";
-import { AssistantStatus } from "./components/AssistantStatus";
-import { NativeActionPanel } from "./components/NativeActionPanel";
+import { useState, useEffect, useCallback } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { CollapsedIsland } from "./components/DynamicIsland/CollapsedIsland";
+import { ExpandedIsland } from "./components/DynamicIsland/ExpandedIsland";
+import { SettingsPage } from "./components/Settings/SettingsPage";
 import { useDesktopStatus } from "./hooks/useDesktopStatus";
-import { useNativeAction } from "./hooks/useNativeAction";
+import { tauriBridge, isTauriEnvironment } from "./services/tauriBridge";
+
+export type IslandMode = "collapsed" | "expanded" | "settings";
 
 export function App() {
-  const { systemInfo, appStatus, isLoading: statusLoading, error: statusError, refetch } =
-    useDesktopStatus();
-  const {
-    response,
-    isLoading: actionLoading,
-    error: actionError,
-    executePing,
-    reset,
-  } = useNativeAction();
+  const { systemInfo, appStatus, windowGeometry } = useDesktopStatus();
+  const [mode, setMode] = useState<IslandMode>("collapsed");
+  const [webNotice, setWebNotice] = useState(false);
+
+  // Transition helper that coordinates UI state and native OS window sizing
+  const transitionTo = useCallback(async (newMode: IslandMode) => {
+    setMode(newMode);
+    await tauriBridge.setIslandGeometry(newMode);
+  }, []);
+
+  const handleExpand = () => transitionTo("expanded");
+  const handleCollapse = () => transitionTo("collapsed");
+  const handleOpenSettings = () => transitionTo("settings");
+  const handleBackToIsland = () => transitionTo("collapsed");
+
+  const handleCloseWindow = async () => {
+    if (!isTauriEnvironment()) {
+      setWebNotice(true);
+      return;
+    }
+    await tauriBridge.hideWindow();
+  };
+
+  // 1. Listen for native system tray "Settings" event
+  useEffect(() => {
+    if (!isTauriEnvironment()) return;
+    let unlisten: (() => void) | undefined;
+    listen("open-settings", () => {
+      transitionTo("settings");
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [transitionTo]);
+
+  // 2. Global Keyboard Handlers (e.g. Escape collapses or returns to island)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (mode === "expanded" || mode === "settings") {
+          transitionTo("collapsed");
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [mode, transitionTo]);
+
+  // 3. Click outside in OS: If the window loses focus while expanded, collapse to compact pill
+  useEffect(() => {
+    const handleBlur = () => {
+      // Only auto-collapse expanded island when clicking away; leave settings open if user is inspecting
+      if (mode === "expanded") {
+        transitionTo("collapsed");
+      }
+    };
+    window.addEventListener("blur", handleBlur);
+    return () => window.removeEventListener("blur", handleBlur);
+  }, [mode, transitionTo]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      <Header
-        appVersion={systemInfo?.app_version ?? "0.1.0"}
-        isOnline={!statusError}
-      />
+    <div
+      onClick={() => {
+        // Clicking in the transparent background area outside the island collapses it
+        if (mode === "expanded") {
+          handleCollapse();
+        }
+      }}
+      className="w-screen h-screen flex flex-col items-center justify-start p-1.5 box-border bg-transparent select-none overflow-hidden"
+    >
+      {/* Web browser mode banner */}
+      {webNotice && (
+        <div className="mb-2 p-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-[11px] text-amber-300 flex items-center space-x-2">
+          <span>[Desktop Simulation] Window hidden to tray in native mode.</span>
+          <button
+            onClick={() => setWebNotice(false)}
+            className="text-white underline cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
-      <main className="flex-1 max-w-6xl w-full mx-auto p-6 space-y-6">
-        {statusError && (
-          <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between">
-            <div>
-              <span className="font-semibold block text-amber-200">Host Communication Notice</span>
-              <p>{statusError.message}</p>
-            </div>
-            <button
-              onClick={() => refetch()}
-              className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 rounded text-xs transition-colors cursor-pointer"
-            >
-              Retry Connection
-            </button>
-          </div>
-        )}
+      {/* ── Mode 1: Collapsed Dynamic Island Pill ────────────────────────── */}
+      {mode === "collapsed" && (
+        <div className="animate-in fade-in zoom-in-95 duration-200">
+          <CollapsedIsland onExpand={handleExpand} statusText="Ready" isOnline={true} />
+        </div>
+      )}
 
-        <AssistantStatus
-          systemInfo={systemInfo}
-          appStatus={appStatus}
-          isLoading={statusLoading}
-          onRefresh={refetch}
-        />
+      {/* ── Mode 2: Expanded Dynamic Island Panel ───────────────────────── */}
+      {mode === "expanded" && (
+        <div className="animate-in fade-in slide-in-from-top-2 duration-250">
+          <ExpandedIsland
+            onCollapse={handleCollapse}
+            onOpenSettings={handleOpenSettings}
+            onCloseWindow={handleCloseWindow}
+          />
+        </div>
+      )}
 
-        <NativeActionPanel
-          isLoading={actionLoading}
-          response={response}
-          error={actionError}
-          onSendPing={executePing}
-          onReset={reset}
-        />
-      </main>
-
-      <footer className="border-t border-slate-900 py-3 px-6 text-center text-xs text-slate-400">
-        Desktop Intelligence Assistant &bull; Lightweight Tauri 2 Architecture
-      </footer>
+      {/* ── Mode 3: Full Settings Interface ─────────────────────────────── */}
+      {mode === "settings" && (
+        <div className="animate-in fade-in zoom-in-95 duration-200">
+          <SettingsPage
+            onBackToIsland={handleBackToIsland}
+            systemInfo={systemInfo}
+            appStatus={appStatus}
+            windowGeometry={windowGeometry}
+          />
+        </div>
+      )}
     </div>
   );
 }
