@@ -1,11 +1,13 @@
 mod commands;
 mod db;
+mod news;
 
 use commands::db_commands::{
-    db_delete_setting, db_get_all_settings, db_get_articles, db_get_briefings_by_category,
+    db_add_news_source, db_delete_news_source, db_delete_setting, db_get_all_settings,
+    db_get_articles, db_get_articles_paginated, db_get_briefings_by_category,
     db_get_category_preferences, db_get_latest_briefings, db_get_news_sources, db_get_setting,
     db_get_stats, db_insert_articles, db_prune_old_articles, db_set_news_source_enabled,
-    db_upsert_briefing, db_upsert_category_preference, db_upsert_setting,
+    db_sync_news_feeds, db_upsert_briefing, db_upsert_category_preference, db_upsert_setting,
 };
 use commands::system::{
     get_app_status, get_preferences, get_system_info, get_window_geometry, hide_window,
@@ -158,6 +160,25 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // ── 7. Background News Sync Worker ─────────────────────────────────
+            let bg_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Initial fetch delayed by 2s so window displays instantly without latency
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                if let Some(db_state) = bg_app.try_state::<crate::db::DbState>() {
+                    let _ = crate::news::sync_all_feeds(&db_state).await;
+                }
+
+                // Periodic refresh loop (every 30 minutes = 1800s)
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(1800));
+                loop {
+                    interval.tick().await;
+                    if let Some(db_state) = bg_app.try_state::<crate::db::DbState>() {
+                        let _ = crate::news::sync_all_feeds(&db_state).await;
+                    }
+                }
+            });
+
             Ok(())
         })
         // ── Window events ─────────────────────────────────────────────────────
@@ -196,15 +217,19 @@ pub fn run() {
             save_preferences,
             set_launch_at_startup,
             update_global_shortcut,
-            // Database commands (new)
+            // Database commands (existing & news engine)
             db_get_setting,
             db_upsert_setting,
             db_delete_setting,
             db_get_all_settings,
             db_get_news_sources,
             db_set_news_source_enabled,
+            db_add_news_source,
+            db_delete_news_source,
+            db_sync_news_feeds,
             db_insert_articles,
             db_get_articles,
+            db_get_articles_paginated,
             db_prune_old_articles,
             db_upsert_briefing,
             db_get_latest_briefings,

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type FormEvent, type KeyboardEvent } from "react";
+import { useState, useRef, useEffect, useCallback, type FormEvent, type KeyboardEvent } from "react";
 import {
   Sliders,
   Palette,
@@ -25,6 +25,10 @@ import {
   ShieldCheck,
   CheckCircle2,
   Database,
+  Rss,
+  Plus,
+  Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { OrbitLogo } from "../icons";
 import { Card } from "@/components/ui/card";
@@ -36,7 +40,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { tauriBridge } from "../../services/tauriBridge";
-import { dbService, type DbStats } from "../../services/dbService";
+import { dbService, type DbStats, type NewsSource } from "../../services/dbService";
 import type {
   SystemInfo,
   AppStatus,
@@ -77,6 +81,7 @@ export type SettingsTab =
   | "appearance"
   | "shortcuts"
   | "categories"
+  | "sources"
   | "notifications"
   | "about";
 
@@ -130,14 +135,98 @@ export function SettingsPage({
   // Database stats state for About panel
   const [dbStats, setDbStats] = useState<DbStats | null>(null);
 
+  // News Sources Management State
+  const [sources, setSources] = useState<NewsSource[]>([]);
+  const [isLoadingSources, setIsLoadingSources] = useState(false);
+  const [newSourceName, setNewSourceName] = useState("");
+  const [newSourceUrl, setNewSourceUrl] = useState("");
+  const [newSourceCategory, setNewSourceCategory] = useState("technology");
+  const [isAddingSource, setIsAddingSource] = useState(false);
+  const [addSourceError, setAddSourceError] = useState<string | null>(null);
+  const [isSyncingSources, setIsSyncingSources] = useState(false);
+  const [syncSourcesResult, setSyncSourcesResult] = useState<string | null>(null);
+
+  const loadSources = useCallback(async () => {
+    setIsLoadingSources(true);
+    try {
+      const list = await dbService.getNewsSources();
+      setSources(list);
+    } catch (err) {
+      console.warn("Failed to load news sources:", err);
+    } finally {
+      setIsLoadingSources(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeTab === "about") {
       dbService
         .getStats()
         .then(setDbStats)
         .catch((err) => console.warn("Failed to retrieve DB stats:", err));
+    } else if (activeTab === "sources") {
+      loadSources();
     }
-  }, [activeTab]);
+  }, [activeTab, loadSources]);
+
+  const handleToggleSource = async (sourceId: number, currentEnabled: boolean) => {
+    try {
+      await dbService.setNewsSourceEnabled(sourceId, !currentEnabled);
+      setSources((prev) =>
+        prev.map((s) => (s.id === sourceId ? { ...s, enabled: !currentEnabled } : s))
+      );
+    } catch (err) {
+      console.warn("Could not toggle source:", err);
+    }
+  };
+
+  const handleAddSource = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!newSourceName.trim() || !newSourceUrl.trim()) return;
+    setIsAddingSource(true);
+    setAddSourceError(null);
+    try {
+      // Validate URL
+      new URL(newSourceUrl.trim());
+      await dbService.addNewsSource(
+        newSourceName.trim(),
+        newSourceUrl.trim(),
+        newSourceCategory
+      );
+      setNewSourceName("");
+      setNewSourceUrl("");
+      await loadSources();
+    } catch (err) {
+      setAddSourceError("Invalid URL format or failed to add feed. Please provide a valid HTTP/HTTPS URL.");
+    } finally {
+      setIsAddingSource(false);
+    }
+  };
+
+  const handleDeleteSource = async (sourceId: number) => {
+    try {
+      await dbService.deleteNewsSource(sourceId);
+      setSources((prev) => prev.filter((s) => s.id !== sourceId));
+    } catch (err) {
+      console.warn("Could not delete source:", err);
+    }
+  };
+
+  const handleSyncAllSources = async () => {
+    setIsSyncingSources(true);
+    setSyncSourcesResult(null);
+    try {
+      const report = await dbService.syncNewsFeeds();
+      setSyncSourcesResult(
+        `Sync complete: ${report.new_articles} new articles saved from ${report.fetched_sources} of ${report.total_sources} feeds.`
+      );
+      await loadSources();
+    } catch (err) {
+      setSyncSourcesResult("Sync attempt failed. Please check internet connection.");
+    } finally {
+      setIsSyncingSources(false);
+    }
+  };
 
   // Handle keypresses during shortcut recording
   const handleKeyDownRecording = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -247,6 +336,7 @@ export function SettingsPage({
     { id: "appearance", label: "Appearance", icon: <Palette className="w-4 h-4" /> },
     { id: "shortcuts", label: "Keyboard Shortcuts", icon: <Keyboard className="w-4 h-4" /> },
     { id: "categories", label: "Intelligence Categories", icon: <Sparkles className="w-4 h-4" /> },
+    { id: "sources", label: "News Sources & RSS", icon: <Rss className="w-4 h-4" /> },
     { id: "notifications", label: "Notifications", icon: <Bell className="w-4 h-4" /> },
     { id: "about", label: "About Orbit", icon: <Info className="w-4 h-4" /> },
   ];
@@ -933,7 +1023,169 @@ export function SettingsPage({
           )}
 
           {/* ════════════════════════════════════════════════════════════════ */}
-          {/* 5. NOTIFICATIONS TAB                                            */}
+          {/* 5. NEWS SOURCES TAB                                             */}
+          {/* ════════════════════════════════════════════════════════════════ */}
+          {activeTab === "sources" && (
+            <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">News Sources & RSS Feeds</h2>
+                  <p className="text-[11px] text-neutral-400">
+                    Trusted RSS & Atom publisher feeds aggregated directly into SQLite.
+                  </p>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="xs"
+                  disabled={isSyncingSources}
+                  onClick={handleSyncAllSources}
+                  className={`h-7 px-2.5 text-xs ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} gap-1.5 rounded-xl`}
+                >
+                  <RefreshCw className={`w-3 h-3 ${isSyncingSources ? "animate-spin" : ""}`} />
+                  <span>{isSyncingSources ? "Syncing..." : "Sync Feeds Now"}</span>
+                </Button>
+              </div>
+
+              {syncSourcesResult && (
+                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 flex items-center justify-between">
+                  <span>{syncSourcesResult}</span>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => setSyncSourcesResult(null)}
+                    className="h-4 px-1 text-[9px] text-emerald-400"
+                  >
+                    ✕
+                  </Button>
+                </div>
+              )}
+
+              {/* Add Custom Publisher Feed */}
+              <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2.5">
+                <span className="text-xs font-semibold text-white block">Add Custom RSS / Atom Feed</span>
+                <form onSubmit={handleAddSource} className="space-y-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input
+                      type="text"
+                      placeholder="Publisher (e.g. Wired)"
+                      value={newSourceName}
+                      onChange={(e) => setNewSourceName(e.target.value)}
+                      className="h-8 text-xs bg-black/50 border-white/[0.08] rounded-xl text-neutral-200"
+                    />
+                    <Input
+                      type="url"
+                      placeholder="RSS Feed URL"
+                      value={newSourceUrl}
+                      onChange={(e) => setNewSourceUrl(e.target.value)}
+                      className="h-8 text-xs bg-black/50 border-white/[0.08] rounded-xl text-neutral-200"
+                    />
+                    <select
+                      value={newSourceCategory}
+                      onChange={(e) => setNewSourceCategory(e.target.value)}
+                      className="h-8 text-xs bg-black/60 border border-white/[0.08] rounded-xl px-2 text-neutral-200 focus:outline-none"
+                    >
+                      <option value="world">World</option>
+                      <option value="technology">Technology</option>
+                      <option value="ai">AI</option>
+                      <option value="finance">Finance</option>
+                      <option value="business">Business</option>
+                      <option value="science">Science</option>
+                      <option value="cybersecurity">Cybersecurity</option>
+                    </select>
+                  </div>
+
+                  {addSourceError && (
+                    <p className="text-[10px] text-rose-400">{addSourceError}</p>
+                  )}
+
+                  <div className="flex justify-end">
+                    <Button
+                      type="submit"
+                      disabled={isAddingSource || !newSourceName.trim() || !newSourceUrl.trim()}
+                      size="xs"
+                      className={`h-7 px-3 text-xs ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} gap-1 rounded-xl`}
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>{isAddingSource ? "Adding..." : "Add Publisher Feed"}</span>
+                    </Button>
+                  </div>
+                </form>
+              </Card>
+
+              {/* Configured Feeds List */}
+              <div className="space-y-2">
+                <span className="text-xs font-semibold text-neutral-400 block px-1">
+                  Active Publisher Feeds ({sources.filter((s) => s.enabled).length} of {sources.length} Enabled)
+                </span>
+
+                {isLoadingSources ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-12 bg-white/[0.02] rounded-2xl animate-pulse" />
+                    ))}
+                  </div>
+                ) : (
+                  sources.map((src) => (
+                    <Card
+                      key={src.id}
+                      className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center space-x-3 truncate">
+                        <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-neutral-300 shrink-0">
+                          <Rss className="w-3.5 h-3.5 text-amber-400" />
+                        </div>
+                        <div className="truncate">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-xs font-medium text-white">{src.name}</span>
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] px-1 py-0 uppercase bg-white/[0.04] border-white/[0.08] text-neutral-300"
+                            >
+                              {src.category}
+                            </Badge>
+                          </div>
+                          <span className="text-[10px] text-neutral-500 font-mono truncate block max-w-sm">
+                            {src.url}
+                          </span>
+                          {src.last_error && (
+                            <span className="text-[9px] text-rose-400 block truncate">
+                              Notice: {src.last_error}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <Switch
+                          checked={src.enabled}
+                          onCheckedChange={() => handleToggleSource(src.id, src.enabled)}
+                        />
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                onClick={() => handleDeleteSource(src.id)}
+                                className="text-neutral-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg"
+                              />
+                            }
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top">Remove Feed</TooltipContent>
+                        </Tooltip>
+                      </div>
+                    </Card>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ════════════════════════════════════════════════════════════════ */}
+          {/* 6. NOTIFICATIONS TAB                                            */}
           {/* ════════════════════════════════════════════════════════════════ */}
           {activeTab === "notifications" && (
             <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">

@@ -1,19 +1,16 @@
 /**
  * dbService.ts
  *
- * Typed TypeScript client for all Nexora SQLite database IPC commands.
+ * Typed TypeScript client for all Nexora SQLite database and news aggregation IPC commands.
  * Every method is async and uses the Tauri `invoke` bridge so database
- * operations never block the React render thread.
- *
- * In web/dev mode (non-Tauri) each method degrades gracefully to a no-op
- * or returns sensible empty-state defaults so the UI can still be iterated.
+ * and network operations never block the React render thread.
  */
 
 import { invoke } from "@tauri-apps/api/core";
 import { isTauriEnvironment, normalizeError } from "./tauriBridge";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Domain Types (mirror the Rust structs in repository.rs)
+// Domain Types
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface DbSetting {
@@ -30,6 +27,10 @@ export interface NewsSource {
   category: string;
   enabled: boolean;
   created_at: string;
+  etag?: string | null;
+  last_modified?: string | null;
+  last_fetched_at?: string | null;
+  last_error?: string | null;
 }
 
 export interface Article {
@@ -41,6 +42,9 @@ export interface Article {
   category: string;
   published_at: string | null;
   fetched_at: string;
+  publisher?: string | null;
+  guid?: string | null;
+  content_hash?: string | null;
 }
 
 export interface NewArticle {
@@ -50,6 +54,9 @@ export interface NewArticle {
   article_url: string;
   category: string;
   published_at?: string | null;
+  publisher?: string | null;
+  guid?: string | null;
+  content_hash?: string | null;
 }
 
 export interface Briefing {
@@ -83,14 +90,23 @@ export interface DbStats {
   category_preferences: number;
 }
 
+export interface SyncReport {
+  total_sources: number;
+  fetched_sources: number;
+  new_articles: number;
+  errors: string[];
+  timestamp: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helper
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!isTauriEnvironment()) {
+    console.warn(`[Web Preview] Command '${command}' called in non-Tauri mode.`);
     throw normalizeError(
-      `[Web Preview] Database command '${command}' is only available in native desktop mode.`
+      `[Web Preview] Command '${command}' is only available in native desktop mode.`
     );
   }
   try {
@@ -101,74 +117,54 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Settings
+// Database & News Service
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const dbService = {
-  /**
-   * Retrieve a single key-value setting from the database.
-   * Returns `null` if the key does not exist.
-   */
+  // ── Settings ──────────────────────────────────────────────────────────────
   async getSetting(key: string): Promise<string | null> {
     return call<string | null>("db_get_setting", { key });
   },
 
-  /**
-   * Insert or update a key-value setting.
-   */
   async upsertSetting(key: string, value: string): Promise<void> {
     return call<void>("db_upsert_setting", { key, value });
   },
 
-  /**
-   * Delete a setting by key.
-   */
   async deleteSetting(key: string): Promise<void> {
     return call<void>("db_delete_setting", { key });
   },
 
-  /**
-   * Return all settings rows.
-   */
   async getAllSettings(): Promise<DbSetting[]> {
     return call<DbSetting[]>("db_get_all_settings");
   },
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // News Sources
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Retrieve all news sources, optionally filtered by category slug.
-   */
+  // ── News Sources ──────────────────────────────────────────────────────────
   async getNewsSources(category?: string): Promise<NewsSource[]> {
     return call<NewsSource[]>("db_get_news_sources", { category: category ?? null });
   },
 
-  /**
-   * Enable or disable a news source by its numeric id.
-   */
   async setNewsSourceEnabled(sourceId: number, enabled: boolean): Promise<void> {
     return call<void>("db_set_news_source_enabled", { source_id: sourceId, enabled });
   },
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Articles
-  // ─────────────────────────────────────────────────────────────────────────
+  async addNewsSource(name: string, url: string, category: string): Promise<number> {
+    return call<number>("db_add_news_source", { name, url, category });
+  },
 
-  /**
-   * Batch-insert articles.  Duplicate URLs are silently ignored.
-   * Returns the number of newly inserted rows.
-   */
+  async deleteNewsSource(sourceId: number): Promise<void> {
+    return call<void>("db_delete_news_source", { source_id: sourceId });
+  },
+
+  // ── RSS Feed Synchronization ──────────────────────────────────────────────
+  async syncNewsFeeds(): Promise<SyncReport> {
+    return call<SyncReport>("db_sync_news_feeds");
+  },
+
+  // ── Articles ──────────────────────────────────────────────────────────────
   async insertArticles(articles: NewArticle[]): Promise<number> {
     return call<number>("db_insert_articles", { articles });
   },
 
-  /**
-   * Retrieve recent articles, newest first.
-   * @param category   optional category slug filter
-   * @param limit      maximum rows to return (default 50, max 500)
-   */
   async getArticles(category?: string, limit?: number): Promise<Article[]> {
     return call<Article[]>("db_get_articles", {
       category: category ?? null,
@@ -176,37 +172,33 @@ export const dbService = {
     });
   },
 
-  /**
-   * Delete articles older than `days` days (default 30).
-   * Returns the count of deleted rows.
-   */
+  async getArticlesPaginated(
+    category?: string,
+    search?: string,
+    limit?: number,
+    offset?: number
+  ): Promise<Article[]> {
+    return call<Article[]>("db_get_articles_paginated", {
+      category: category ?? null,
+      search: search ?? null,
+      limit: limit ?? null,
+      offset: offset ?? null,
+    });
+  },
+
   async pruneOldArticles(days?: number): Promise<number> {
     return call<number>("db_prune_old_articles", { days: days ?? null });
   },
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Briefings
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Upsert a briefing — updates the summary and timestamp if one already
-   * exists for the same category, otherwise inserts a new row.
-   * Returns the row id of the affected briefing.
-   */
+  // ── Briefings ─────────────────────────────────────────────────────────────
   async upsertBriefing(briefing: NewBriefing): Promise<number> {
     return call<number>("db_upsert_briefing", { briefing });
   },
 
-  /**
-   * Return the most recent briefing for each category.
-   */
   async getLatestBriefings(): Promise<Briefing[]> {
     return call<Briefing[]>("db_get_latest_briefings");
   },
 
-  /**
-   * Return briefings for a specific category, newest first.
-   */
   async getBriefingsByCategory(category: string, limit?: number): Promise<Briefing[]> {
     return call<Briefing[]>("db_get_briefings_by_category", {
       category,
@@ -214,33 +206,17 @@ export const dbService = {
     });
   },
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Category Preferences
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Retrieve all per-category user preference rows.
-   */
+  // ── Category Preferences ──────────────────────────────────────────────────
   async getCategoryPreferences(): Promise<CategoryPreference[]> {
     return call<CategoryPreference[]>("db_get_category_preferences");
   },
 
-  /**
-   * Enable or disable a category by its slug (e.g. "world-news").
-   */
   async upsertCategoryPreference(category: string, enabled: boolean): Promise<void> {
     return call<void>("db_upsert_category_preference", { category, enabled });
   },
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Diagnostics
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Return row counts for each table — useful for the About / diagnostics panel.
-   */
+  // ── Telemetry / Diagnostics ───────────────────────────────────────────────
   async getStats(): Promise<DbStats> {
     return call<DbStats>("db_get_stats");
   },
 };
-
