@@ -75,6 +75,7 @@ export interface CategoryPreference {
 }
 
 export interface DbStats {
+  db_path?: string;
   settings: number;
   news_sources: number;
   articles: number;

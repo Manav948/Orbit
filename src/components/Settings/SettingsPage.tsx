@@ -24,6 +24,7 @@ import {
   Sun,
   ShieldCheck,
   CheckCircle2,
+  Database,
 } from "lucide-react";
 import { OrbitLogo } from "../icons";
 import { Card } from "@/components/ui/card";
@@ -35,6 +36,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { tauriBridge } from "../../services/tauriBridge";
+import { dbService, type DbStats } from "../../services/dbService";
 import type {
   SystemInfo,
   AppStatus,
@@ -124,6 +126,18 @@ export function SettingsPage({
 
   // Reset Confirmation State
   const [confirmReset, setConfirmReset] = useState(false);
+
+  // Database stats state for About panel
+  const [dbStats, setDbStats] = useState<DbStats | null>(null);
+
+  useEffect(() => {
+    if (activeTab === "about") {
+      dbService
+        .getStats()
+        .then(setDbStats)
+        .catch((err) => console.warn("Failed to retrieve DB stats:", err));
+    }
+  }, [activeTab]);
 
   // Handle keypresses during shortcut recording
   const handleKeyDownRecording = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -244,7 +258,7 @@ export function SettingsPage({
   return (
     <Card
       onClick={(e) => e.stopPropagation()}
-      className="w-[760px] h-[540px] p-0 gap-0 flex flex-col bg-[#07080a]/98 border-white/[0.09] rounded-3xl shadow-2xl shadow-black/95 overflow-hidden backdrop-blur-2xl text-neutral-200 select-none ring-1 ring-white/[0.04]"
+      className="w-[760px] h-[540px] p-0 gap-0 flex flex-col bg-[#07080a]/98 border-white/[0.09] rounded-3xl overflow-hidden backdrop-blur-2xl text-neutral-200 select-none ring-1 ring-white/[0.04]"
     >
       {/* ── Top Bar ────────────────────────────────────────────────────── */}
       <div
@@ -1054,6 +1068,38 @@ export function SettingsPage({
                     <span className="text-amber-300/80 font-mono text-[10px] mt-1 block">
                       Live Geometry: {windowGeometry.width} × {windowGeometry.height} px at ({windowGeometry.x}, {windowGeometry.y}) • Scale {windowGeometry.scale_factor}x
                     </span>
+                  )}
+                </Card>
+
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl col-span-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className={`w-6 h-6 rounded-lg ${accent.bgSubtle} border ${accent.borderSubtle} flex items-center justify-center ${accent.text}`}>
+                        <Database className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase font-semibold text-neutral-400 block">
+                          SQLite Database Storage
+                        </span>
+                        <span className="text-white font-mono text-[10px] mt-0.5 block break-all">
+                          {dbStats?.db_path ?? "D:\\extra file\\database\\nexora.db"}
+                        </span>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-300 border-emerald-500/30">
+                      Active WAL
+                    </Badge>
+                  </div>
+                  {dbStats && (
+                    <div className="flex items-center space-x-3 text-[10px] text-neutral-400 mt-2 pt-2 border-t border-white/[0.04]">
+                      <span>Sources: <strong className="text-white">{dbStats.news_sources}</strong></span>
+                      <span>•</span>
+                      <span>Categories: <strong className="text-white">{dbStats.category_preferences}</strong></span>
+                      <span>•</span>
+                      <span>Articles: <strong className="text-white">{dbStats.articles}</strong></span>
+                      <span>•</span>
+                      <span>Briefings: <strong className="text-white">{dbStats.briefings}</strong></span>
+                    </div>
                   )}
                 </Card>
               </div>

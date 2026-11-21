@@ -464,6 +464,10 @@ pub fn upsert_category_preference(
 
 /// Return basic database statistics for diagnostics.
 pub fn get_db_stats(conn: &Connection) -> Result<serde_json::Value, String> {
+    let db_path: String = conn
+        .query_row("PRAGMA database_list", [], |r| r.get(2))
+        .unwrap_or_else(|_| "Unknown".to_string());
+
     let settings_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM settings", [], |r| r.get(0))
         .unwrap_or(0);
@@ -481,6 +485,7 @@ pub fn get_db_stats(conn: &Connection) -> Result<serde_json::Value, String> {
         .unwrap_or(0);
 
     Ok(serde_json::json!({
+        "db_path": db_path,
         "settings": settings_count,
         "news_sources": sources_count,
         "articles": articles_count,
