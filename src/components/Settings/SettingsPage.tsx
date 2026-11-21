@@ -29,6 +29,11 @@ import {
   Plus,
   Trash2,
   RefreshCw,
+  Bot,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Lock,
 } from "lucide-react";
 import { OrbitLogo } from "../icons";
 import { Card } from "@/components/ui/card";
@@ -40,7 +45,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { tauriBridge } from "../../services/tauriBridge";
-import { dbService, type DbStats, type NewsSource } from "../../services/dbService";
+import { dbService, type DbStats, type NewsSource, type AiConfigInfo } from "../../services/dbService";
 import type {
   SystemInfo,
   AppStatus,
@@ -82,6 +87,7 @@ export type SettingsTab =
   | "shortcuts"
   | "categories"
   | "sources"
+  | "ai"
   | "notifications"
   | "about";
 
@@ -158,6 +164,37 @@ export function SettingsPage({
     }
   }, []);
 
+  // AI Configuration State
+  const [aiConfig, setAiConfig] = useState<AiConfigInfo | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [aiModel, setAiModel] = useState("gpt-4o-mini");
+  const [explanationMode, setExplanationMode] = useState("simple");
+  const [briefingLength, setBriefingLength] = useState("standard");
+  const [isSavingAiConfig, setIsSavingAiConfig] = useState(false);
+  const [aiConfigFeedback, setAiConfigFeedback] = useState<{
+    type: "success" | "error" | "info";
+    message: string;
+  } | null>(null);
+  const [isTestingAi, setIsTestingAi] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<string | null>(null);
+  const [aiTestError, setAiTestError] = useState<string | null>(null);
+
+  const loadAiConfig = useCallback(async () => {
+    try {
+      const cfg = await dbService.getAiConfig();
+      setAiConfig(cfg);
+      setAiModel(cfg.model || "gpt-4o-mini");
+      setExplanationMode(cfg.explanation_mode || "simple");
+      setBriefingLength(cfg.briefing_length || "standard");
+      if (cfg.has_key && cfg.masked_key) {
+        setApiKeyInput(cfg.masked_key);
+      }
+    } catch (err) {
+      console.warn("Failed to load AI config:", err);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeTab === "about") {
       dbService
@@ -166,8 +203,50 @@ export function SettingsPage({
         .catch((err) => console.warn("Failed to retrieve DB stats:", err));
     } else if (activeTab === "sources") {
       loadSources();
+    } else if (activeTab === "ai") {
+      loadAiConfig();
     }
-  }, [activeTab, loadSources]);
+  }, [activeTab, loadSources, loadAiConfig]);
+
+  const handleSaveAiConfig = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsSavingAiConfig(true);
+    setAiConfigFeedback(null);
+    try {
+      await dbService.saveAiConfig({
+        apiKey: apiKeyInput.trim(),
+        model: aiModel,
+        explanationMode,
+        briefingLength,
+      });
+      await loadAiConfig();
+      setAiConfigFeedback({
+        type: "success",
+        message: "AI configuration saved securely to local SQLite settings.",
+      });
+    } catch (err) {
+      setAiConfigFeedback({
+        type: "error",
+        message: err instanceof Error ? err.message : "Failed to save AI configuration.",
+      });
+    } finally {
+      setIsSavingAiConfig(false);
+    }
+  };
+
+  const handleTestAiConnection = async () => {
+    setIsTestingAi(true);
+    setAiTestResult(null);
+    setAiTestError(null);
+    try {
+      const res = await dbService.testAiConnection();
+      setAiTestResult(res);
+    } catch (err) {
+      setAiTestError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsTestingAi(false);
+    }
+  };
 
   const handleToggleSource = async (sourceId: number, currentEnabled: boolean) => {
     try {
@@ -337,6 +416,7 @@ export function SettingsPage({
     { id: "shortcuts", label: "Keyboard Shortcuts", icon: <Keyboard className="w-4 h-4" /> },
     { id: "categories", label: "Intelligence Categories", icon: <Sparkles className="w-4 h-4" /> },
     { id: "sources", label: "News Sources & RSS", icon: <Rss className="w-4 h-4" /> },
+    { id: "ai", label: "AI Configuration", icon: <Bot className="w-4 h-4" /> },
     { id: "notifications", label: "Notifications", icon: <Bell className="w-4 h-4" /> },
     { id: "about", label: "About Orbit", icon: <Info className="w-4 h-4" /> },
   ];
@@ -403,24 +483,23 @@ export function SettingsPage({
             />
             <div className="space-y-1">
               {navItems.map((item) => {
-              const active = activeTab === item.id;
-              return (
-                <Button
-                  key={item.id}
-                  variant="ghost"
-                  onClick={() => setActiveTab(item.id)}
-                  className={`group w-full flex flex-row items-center justify-start gap-2.5 h-8 px-3 text-left text-xs font-medium rounded-xl transition-all ${
-                    active
-                      ? "!bg-white hover:!bg-white focus-visible:!bg-white border-white !text-neutral-950 hover:!text-neutral-950 focus-visible:!text-neutral-950 font-semibold"
-                      : "text-neutral-400 hover:!text-neutral-400 hover:!bg-transparent"
-                  }`}
-                >
-                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center ${active ? "text-neutral-950" : "text-neutral-500"}`}>
-                    {item.icon}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
-                </Button>
-              );
+                const active = activeTab === item.id;
+                return (
+                  <Button
+                    key={item.id}
+                    variant="ghost"
+                    onClick={() => setActiveTab(item.id)}
+                    className={`group w-full flex flex-row items-center justify-start gap-2.5 h-8 px-3 text-left text-xs font-medium rounded-xl transition-all ${active
+                        ? "!bg-white hover:!bg-white focus-visible:!bg-white border-white !text-neutral-950 hover:!text-neutral-950 focus-visible:!text-neutral-950 font-semibold"
+                        : "text-neutral-400 hover:!text-neutral-400 hover:!bg-transparent"
+                      }`}
+                  >
+                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center ${active ? "text-neutral-950" : "text-neutral-500"}`}>
+                      {item.icon}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
+                  </Button>
+                );
               })}
             </div>
           </div>
@@ -438,1004 +517,1250 @@ export function SettingsPage({
         {/* Content Pane with shadcn ScrollArea */}
         <ScrollArea className="flex-1 min-w-0">
           <div className="min-h-full p-5">
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {/* 1. GENERAL TAB                                                  */}
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {activeTab === "general" && (
-            <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
-              <div>
-                <h2 className="text-sm font-semibold text-white">General Preferences</h2>
-                <p className="text-[11px] text-neutral-400">
-                  Control startup behavior, taskbar integration, and window lifecycle.
-                </p>
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* 1. GENERAL TAB                                                  */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {activeTab === "general" && (
+              <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">General Preferences</h2>
+                  <p className="text-[11px] text-neutral-400">
+                    Control startup behavior, taskbar integration, and window lifecycle.
+                  </p>
+                </div>
+
+                <div className="space-y-2.5">
+                  {/* Windows Startup */}
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <span className="text-xs font-medium text-white block">
+                        Launch Orbit on Windows Startup
+                      </span>
+                      <span className="text-[10px] text-neutral-400 block">
+                        Automatically position the Dynamic Island top-center when logging into Windows.
+                      </span>
+                    </div>
+                    <Switch
+                      checked={preferences.launch_at_startup}
+                      onCheckedChange={(checked) => onSetLaunchAtStartup(checked)}
+                    />
+                  </Card>
+
+                  {/* Start Minimized */}
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <span className="text-xs font-medium text-white block">
+                        Start Minimized to Tray
+                      </span>
+                      <span className="text-[10px] text-neutral-400 block">
+                        Begin in the background without displaying the island until requested.
+                      </span>
+                    </div>
+                    <Switch
+                      checked={preferences.start_minimized}
+                      onCheckedChange={(checked) => onSetStartMinimized(checked)}
+                    />
+                  </Card>
+
+                  {/* Close Button Behavior */}
+                  <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2.5">
+                    <div>
+                      <span className="text-xs font-medium text-white block">
+                        Close Button Behavior
+                      </span>
+                      <span className="text-[10px] text-neutral-400 block">
+                        Determine what occurs when clicking the window close button.
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <Button
+                        type="button"
+                        variant={preferences.close_behavior === "tray" ? "secondary" : "outline"}
+                        onClick={() => onSetCloseBehavior("tray")}
+                        className={`h-8 justify-start px-2.5 text-xs rounded-xl ${preferences.close_behavior === "tray"
+                            ? "!bg-white hover:!bg-white border-white !text-neutral-950 hover:!text-neutral-950 font-semibold"
+                            : "bg-black/30 border-white/[0.06] text-neutral-400"
+                          }`}
+                      >
+                        <span>Hide to Tray</span>
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant={preferences.close_behavior === "minimize" ? "secondary" : "outline"}
+                        onClick={() => onSetCloseBehavior("minimize")}
+                        className={`h-8 justify-start px-2.5 text-xs rounded-xl ${preferences.close_behavior === "minimize"
+                            ? "!bg-white hover:!bg-white border-white !text-neutral-950 hover:!text-neutral-950 font-semibold"
+                            : "bg-black/30 border-white/[0.06] text-neutral-400"
+                          }`}
+                      >
+                        <span>Minimize</span>
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant={preferences.close_behavior === "exit" ? "secondary" : "outline"}
+                        onClick={() => onSetCloseBehavior("exit")}
+                        className={`h-8 justify-start px-2.5 text-xs rounded-xl ${preferences.close_behavior === "exit"
+                            ? "!bg-white hover:!bg-white border-white !text-neutral-950 hover:!text-neutral-950 font-semibold"
+                            : "bg-black/30 border-white/[0.06] text-neutral-400"
+                          }`}
+                      >
+                        <span>Terminate App</span>
+                      </Button>
+                    </div>
+                  </Card>
+
+                  {/* Automatic Updates Placeholder */}
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs font-medium text-white">
+                          Automatically Check for Updates
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] px-1.5 py-0 bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                        >
+                          v0.1.0 Latest
+                        </Badge>
+                      </div>
+                      <span className="text-[10px] text-neutral-400 block">
+                        Periodically notify when new frontier intelligence capabilities are released.
+                      </span>
+                    </div>
+                    <Switch
+                      checked={preferences.auto_check_updates}
+                      onCheckedChange={(checked) => onSetAutoCheckUpdates(checked)}
+                    />
+                  </Card>
+                </div>
               </div>
+            )}
 
-              <div className="space-y-2.5">
-                {/* Windows Startup */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <span className="text-xs font-medium text-white block">
-                      Launch Orbit on Windows Startup
-                    </span>
-                    <span className="text-[10px] text-neutral-400 block">
-                      Automatically position the Dynamic Island top-center when logging into Windows.
-                    </span>
-                  </div>
-                  <Switch
-                    checked={preferences.launch_at_startup}
-                    onCheckedChange={(checked) => onSetLaunchAtStartup(checked)}
-                  />
-                </Card>
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* 2. APPEARANCE TAB                                               */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {activeTab === "appearance" && (
+              <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Appearance & Theming</h2>
+                  <p className="text-[11px] text-neutral-400">
+                    Personalize the visual aesthetics, theme mode, and accent colors.
+                  </p>
+                </div>
 
-                {/* Start Minimized */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <span className="text-xs font-medium text-white block">
-                      Start Minimized to Tray
-                    </span>
-                    <span className="text-[10px] text-neutral-400 block">
-                      Begin in the background without displaying the island until requested.
-                    </span>
-                  </div>
-                  <Switch
-                    checked={preferences.start_minimized}
-                    onCheckedChange={(checked) => onSetStartMinimized(checked)}
-                  />
-                </Card>
-
-                {/* Close Button Behavior */}
+                {/* Theme Mode Selection */}
                 <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2.5">
                   <div>
-                    <span className="text-xs font-medium text-white block">
-                      Close Button Behavior
-                    </span>
+                    <span className="text-xs font-medium text-white block">Theme Mode</span>
                     <span className="text-[10px] text-neutral-400 block">
-                      Determine what occurs when clicking the window close button.
+                      Choose between dark, light, or automatic system-synchronized theme.
                     </span>
                   </div>
 
                   <div className="grid grid-cols-3 gap-2">
                     <Button
                       type="button"
-                      variant={preferences.close_behavior === "tray" ? "secondary" : "outline"}
-                      onClick={() => onSetCloseBehavior("tray")}
-                      className={`h-8 justify-start px-2.5 text-xs rounded-xl ${
-                        preferences.close_behavior === "tray"
-                          ? "!bg-white hover:!bg-white border-white !text-neutral-950 hover:!text-neutral-950 font-semibold"
+                      variant={preferences.theme === "dark" ? "secondary" : "outline"}
+                      onClick={() => onSetTheme("dark")}
+                      className={`h-8 justify-center px-3 text-xs gap-2 rounded-xl ${preferences.theme === "dark"
+                          ? `${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} font-semibold`
                           : "bg-black/30 border-white/[0.06] text-neutral-400"
-                      }`}
-                    >
-                      <span>Hide to Tray</span>
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant={preferences.close_behavior === "minimize" ? "secondary" : "outline"}
-                      onClick={() => onSetCloseBehavior("minimize")}
-                      className={`h-8 justify-start px-2.5 text-xs rounded-xl ${
-                        preferences.close_behavior === "minimize"
-                          ? "!bg-white hover:!bg-white border-white !text-neutral-950 hover:!text-neutral-950 font-semibold"
-                          : "bg-black/30 border-white/[0.06] text-neutral-400"
-                      }`}
-                    >
-                      <span>Minimize</span>
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant={preferences.close_behavior === "exit" ? "secondary" : "outline"}
-                      onClick={() => onSetCloseBehavior("exit")}
-                      className={`h-8 justify-start px-2.5 text-xs rounded-xl ${
-                        preferences.close_behavior === "exit"
-                          ? "!bg-white hover:!bg-white border-white !text-neutral-950 hover:!text-neutral-950 font-semibold"
-                          : "bg-black/30 border-white/[0.06] text-neutral-400"
-                      }`}
-                    >
-                      <span>Terminate App</span>
-                    </Button>
-                  </div>
-                </Card>
-
-                {/* Automatic Updates Placeholder */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs font-medium text-white">
-                        Automatically Check for Updates
-                      </span>
-                      <Badge
-                        variant="outline"
-                        className="text-[9px] px-1.5 py-0 bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
-                      >
-                        v0.1.0 Latest
-                      </Badge>
-                    </div>
-                    <span className="text-[10px] text-neutral-400 block">
-                      Periodically notify when new frontier intelligence capabilities are released.
-                    </span>
-                  </div>
-                  <Switch
-                    checked={preferences.auto_check_updates}
-                    onCheckedChange={(checked) => onSetAutoCheckUpdates(checked)}
-                  />
-                </Card>
-              </div>
-            </div>
-          )}
-
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {/* 2. APPEARANCE TAB                                               */}
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {activeTab === "appearance" && (
-            <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Appearance & Theming</h2>
-                <p className="text-[11px] text-neutral-400">
-                  Personalize the visual aesthetics, theme mode, and accent colors.
-                </p>
-              </div>
-
-              {/* Theme Mode Selection */}
-              <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2.5">
-                <div>
-                  <span className="text-xs font-medium text-white block">Theme Mode</span>
-                  <span className="text-[10px] text-neutral-400 block">
-                    Choose between dark, light, or automatic system-synchronized theme.
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  <Button
-                    type="button"
-                    variant={preferences.theme === "dark" ? "secondary" : "outline"}
-                    onClick={() => onSetTheme("dark")}
-                    className={`h-8 justify-center px-3 text-xs gap-2 rounded-xl ${
-                      preferences.theme === "dark"
-                        ? `${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} font-semibold`
-                        : "bg-black/30 border-white/[0.06] text-neutral-400"
-                    }`}
-                  >
-                    <Moon className="w-3.5 h-3.5" />
-                    <span>Dark</span>
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant={preferences.theme === "light" ? "secondary" : "outline"}
-                    onClick={() => onSetTheme("light")}
-                    className={`h-8 justify-center px-3 text-xs gap-2 rounded-xl ${
-                      preferences.theme === "light"
-                        ? `${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} font-semibold`
-                        : "bg-black/30 border-white/[0.06] text-neutral-400"
-                    }`}
-                  >
-                    <Sun className="w-3.5 h-3.5" />
-                    <span>Light</span>
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant={preferences.theme === "system" ? "secondary" : "outline"}
-                    onClick={() => onSetTheme("system")}
-                    className={`h-8 justify-center px-3 text-xs gap-2 rounded-xl ${
-                      preferences.theme === "system"
-                        ? `${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} font-semibold`
-                        : "bg-black/30 border-white/[0.06] text-neutral-400"
-                    }`}
-                  >
-                    <Laptop className="w-3.5 h-3.5" />
-                    <span>System</span>
-                  </Button>
-                </div>
-              </Card>
-
-              {/* Accent Palette Selection */}
-              <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2.5">
-                <div>
-                  <span className="text-xs font-medium text-white block">Accent Palette</span>
-                  <span className="text-[10px] text-neutral-400 block">
-                    Defines the ambient highlight color used across the Dynamic Island and controls.
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {(Object.keys(ACCENT_THEMES) as AccentColor[]).map((colKey) => {
-                    const themeObj = ACCENT_THEMES[colKey];
-                    const isSelected = preferences.accent_color === colKey;
-                    return (
-                      <Button
-                        key={colKey}
-                        type="button"
-                        variant={isSelected ? "secondary" : "outline"}
-                        onClick={() => onSetAccentColor(colKey)}
-                        className={`h-9 justify-start px-3 text-xs gap-2.5 rounded-xl cursor-pointer ${
-                          isSelected
-                            ? `${themeObj.bgSubtle} border ${themeObj.borderActive} ${themeObj.textLight} font-semibold shadow-xs`
-                            : "bg-black/30 border-white/[0.06] text-neutral-400 hover:text-neutral-200"
                         }`}
-                      >
-                        <span className={`w-3 h-3 rounded-full ${themeObj.dot} shadow-xs`} />
-                        <span className="flex-1 text-left">{themeObj.name}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
-                      </Button>
-                    );
-                  })}
-                </div>
-              </Card>
+                    >
+                      <Moon className="w-3.5 h-3.5" />
+                      <span>Dark</span>
+                    </Button>
 
-              {/* Default Island Mode & Animation Toggle */}
-              <div className="grid grid-cols-2 gap-2.5">
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-medium text-white block">
-                      Default Startup State
-                    </span>
+                    <Button
+                      type="button"
+                      variant={preferences.theme === "light" ? "secondary" : "outline"}
+                      onClick={() => onSetTheme("light")}
+                      className={`h-8 justify-center px-3 text-xs gap-2 rounded-xl ${preferences.theme === "light"
+                          ? `${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} font-semibold`
+                          : "bg-black/30 border-white/[0.06] text-neutral-400"
+                        }`}
+                    >
+                      <Sun className="w-3.5 h-3.5" />
+                      <span>Light</span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant={preferences.theme === "system" ? "secondary" : "outline"}
+                      onClick={() => onSetTheme("system")}
+                      className={`h-8 justify-center px-3 text-xs gap-2 rounded-xl ${preferences.theme === "system"
+                          ? `${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} font-semibold`
+                          : "bg-black/30 border-white/[0.06] text-neutral-400"
+                        }`}
+                    >
+                      <Laptop className="w-3.5 h-3.5" />
+                      <span>System</span>
+                    </Button>
+                  </div>
+                </Card>
+
+                {/* Accent Palette Selection */}
+                <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2.5">
+                  <div>
+                    <span className="text-xs font-medium text-white block">Accent Palette</span>
                     <span className="text-[10px] text-neutral-400 block">
+                      Defines the ambient highlight color used across the Dynamic Island and controls.
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {(Object.keys(ACCENT_THEMES) as AccentColor[]).map((colKey) => {
+                      const themeObj = ACCENT_THEMES[colKey];
+                      const isSelected = preferences.accent_color === colKey;
+                      return (
+                        <Button
+                          key={colKey}
+                          type="button"
+                          variant={isSelected ? "secondary" : "outline"}
+                          onClick={() => onSetAccentColor(colKey)}
+                          className={`h-9 justify-start px-3 text-xs gap-2.5 rounded-xl cursor-pointer ${isSelected
+                              ? `${themeObj.bgSubtle} border ${themeObj.borderActive} ${themeObj.textLight} font-semibold shadow-xs`
+                              : "bg-black/30 border-white/[0.06] text-neutral-400 hover:text-neutral-200"
+                            }`}
+                        >
+                          <span className={`w-3 h-3 rounded-full ${themeObj.dot} shadow-xs`} />
+                          <span className="flex-1 text-left">{themeObj.name}</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </Card>
+
+                {/* Default Island Mode & Animation Toggle */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-medium text-white block">
+                        Default Startup State
+                      </span>
+                      <span className="text-[10px] text-neutral-400 block">
+                        {preferences.default_island_mode === "collapsed"
+                          ? "Compact pill"
+                          : "Expanded panel"}
+                      </span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      onClick={() =>
+                        onSetDefaultIslandMode(
+                          preferences.default_island_mode === "collapsed"
+                            ? "expanded"
+                            : "collapsed"
+                        )
+                      }
+                      className="h-6 px-2 text-[10px] bg-black/40 border-white/[0.08]"
+                    >
                       {preferences.default_island_mode === "collapsed"
-                        ? "Compact pill"
-                        : "Expanded panel"}
-                    </span>
+                        ? "Pill"
+                        : "Expanded"}
+                    </Button>
+                  </Card>
+
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-medium text-white block">
+                        Smooth Animations
+                      </span>
+                      <span className="text-[10px] text-neutral-400 block">
+                        Morphing and transitions
+                      </span>
+                    </div>
+                    <Switch
+                      checked={preferences.enable_animations}
+                      onCheckedChange={(checked) => onSetEnableAnimations(checked)}
+                    />
+                  </Card>
+                </div>
+
+              </div>
+            )}
+
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* 3. KEYBOARD SHORTCUTS TAB                                       */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {activeTab === "shortcuts" && (
+              <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Keyboard Shortcuts</h2>
+                  <p className="text-[11px] text-neutral-400">
+                    Global hotkey configuration registered with Windows via Tauri 2.
+                  </p>
+                </div>
+
+                {/* Active global shortcut and editor */}
+                <Card className="p-4 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-medium text-white block">
+                        Global toggle shortcut
+                      </span>
+                      <span className="text-[10px] text-neutral-400 block">
+                        Use this shortcut anywhere to show or hide Orbit.
+                      </span>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={`px-3 py-1 font-mono text-xs font-semibold ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight}`}
+                    >
+                      {preferences.global_shortcut}
+                    </Badge>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    onClick={() =>
-                      onSetDefaultIslandMode(
-                        preferences.default_island_mode === "collapsed"
-                          ? "expanded"
-                          : "collapsed"
-                      )
-                    }
-                    className="h-6 px-2 text-[10px] bg-black/40 border-white/[0.08]"
-                  >
-                    {preferences.default_island_mode === "collapsed"
-                      ? "Pill"
-                      : "Expanded"}
-                  </Button>
+
+                  <Separator className="bg-white/[0.06]" />
+
+                  {/* Shortcut editor and actions */}
+                  <div className="space-y-2">
+                    <label htmlFor="shortcut-recorder" className="text-[10px] font-medium text-neutral-400">
+                      New shortcut
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <div className="relative flex-1">
+                        <Input
+                          id="shortcut-recorder"
+                          ref={recordInputRef}
+                          type="text"
+                          value={shortcutInput}
+                          onChange={(e) => setShortcutInput(e.target.value)}
+                          onKeyDown={isRecording ? handleKeyDownRecording : undefined}
+                          placeholder="e.g. Alt+Space or Ctrl+Shift+N"
+                          className={`h-9 text-xs font-mono bg-black/50 border-white/[0.1] rounded-xl text-neutral-200 ${isRecording ? `border-amber-400 ring-2 ring-amber-400/30 text-amber-300 animate-pulse` : ""
+                            }`}
+                        />
+                      </div>
+
+                      <Button
+                        type="button"
+                        variant={isRecording ? "destructive" : "outline"}
+                        onClick={() => {
+                          setIsRecording(!isRecording);
+                          if (!isRecording) {
+                            setTimeout(() => recordInputRef.current?.focus(), 50);
+                          }
+                        }}
+                        className="h-9 px-3 text-xs rounded-xl"
+                      >
+                        {isRecording ? "Cancel" : "Record Keys"}
+                      </Button>
+
+                      <Button
+                        type="button"
+                        disabled={isSavingShortcut || shortcutInput === preferences.global_shortcut}
+                        onClick={handleApplyShortcut}
+                        className={`h-9 px-3 text-xs rounded-xl font-medium ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} hover:bg-white/[0.08]`}
+                      >
+                        {isSavingShortcut ? "Saving…" : "Apply shortcut"}
+                      </Button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-neutral-500 pt-1">
+                      <span>
+                        {isRecording
+                          ? "Recording… press a key combination (Esc cancels)."
+                          : "Example: Alt+Space or Ctrl+Shift+N. Include a modifier."}
+                      </span>
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        onClick={handleRestoreDefault}
+                        disabled={isSavingShortcut || preferences.global_shortcut === "Alt+Space"}
+                        className="h-5 px-1.5 text-[10px] text-neutral-400 hover:text-white gap-1"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Restore default</span>
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Feedback Notification Banner */}
+                  {shortcutFeedback && (
+                    <div
+                      className={`p-2.5 rounded-xl text-xs flex items-center space-x-2 animate-in fade-in duration-150 ${shortcutFeedback.type === "success"
+                          ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
+                          : shortcutFeedback.type === "error"
+                            ? "bg-rose-500/10 border border-rose-500/30 text-rose-300"
+                            : "bg-sky-500/10 border border-sky-500/30 text-sky-300"
+                        }`}
+                    >
+                      {shortcutFeedback.type === "success" ? (
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                      ) : shortcutFeedback.type === "error" ? (
+                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                      ) : (
+                        <Info className="w-4 h-4 shrink-0 text-sky-400" />
+                      )}
+                      <span className="text-[11px] leading-relaxed">
+                        {shortcutFeedback.message}
+                      </span>
+                    </div>
+                  )}
                 </Card>
 
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-medium text-white block">
-                      Smooth Animations
-                    </span>
-                    <span className="text-[10px] text-neutral-400 block">
-                      Morphing and transitions
-                    </span>
-                  </div>
-                  <Switch
-                    checked={preferences.enable_animations}
-                    onCheckedChange={(checked) => onSetEnableAnimations(checked)}
-                  />
-                </Card>
+                {/* Built-in shortcuts */}
+                <div className="space-y-2">
+                  <span className="text-xs font-medium text-neutral-400 block px-1">Built-in shortcuts</span>
+
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
+                    <div className="min-w-0 space-y-0.5">
+                      <span className="text-xs font-medium text-white block">
+                        Collapse island
+                      </span>
+                      <span className="text-[10px] text-neutral-400 block">
+                        Return from the expanded panel to the pill.
+                      </span>
+                    </div>
+                    <Button type="button" variant="outline" className="h-7 min-w-14 shrink-0 px-3 font-mono text-xs bg-black/30 border-white/[0.1] text-neutral-200">
+                      Esc
+                    </Button>
+                  </Card>
+
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
+                    <div className="min-w-0 space-y-0.5">
+                      <span className="text-xs font-medium text-white block">
+                        Submit search
+                      </span>
+                      <span className="text-[10px] text-neutral-400 block">
+                        Submit the current query from the search field.
+                      </span>
+                    </div>
+                    <Button type="button" variant="outline" className="h-7 min-w-14 shrink-0 px-3 font-mono text-xs bg-black/30 border-white/[0.1] text-neutral-200">
+                      Enter
+                    </Button>
+                  </Card>
+                </div>
               </div>
+            )}
 
-            </div>
-          )}
-
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {/* 3. KEYBOARD SHORTCUTS TAB                                       */}
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {activeTab === "shortcuts" && (
-            <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Keyboard Shortcuts</h2>
-                <p className="text-[11px] text-neutral-400">
-                  Global hotkey configuration registered with Windows via Tauri 2.
-                </p>
-              </div>
-
-              {/* Active global shortcut and editor */}
-              <Card className="p-4 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-3.5">
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* 4. INTELLIGENCE CATEGORIES TAB                                  */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {activeTab === "categories" && (
+              <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
                 <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-medium text-white block">
-                      Global toggle shortcut
-                    </span>
-                    <span className="text-[10px] text-neutral-400 block">
-                      Use this shortcut anywhere to show or hide Orbit.
-                    </span>
+                  <div>
+                    <h2 className="text-sm font-semibold text-white">Intelligence Categories</h2>
+                    <p className="text-[11px] text-neutral-400">
+                      Customize which frontier streams appear inside the expanded Dynamic Island.
+                    </p>
                   </div>
                   <Badge
                     variant="outline"
-                    className={`px-3 py-1 font-mono text-xs font-semibold ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight}`}
+                    className={`text-[10px] font-medium px-2 py-0.5 ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight}`}
                   >
-                    {preferences.global_shortcut}
+                    {activeCategoriesCount} of {totalCategoriesCount} Active
                   </Badge>
                 </div>
 
-                <Separator className="bg-white/[0.06]" />
-
-                {/* Shortcut editor and actions */}
                 <div className="space-y-2">
-                  <label htmlFor="shortcut-recorder" className="text-[10px] font-medium text-neutral-400">
-                    New shortcut
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <div className="relative flex-1">
-                      <Input
-                        id="shortcut-recorder"
-                        ref={recordInputRef}
-                        type="text"
-                        value={shortcutInput}
-                        onChange={(e) => setShortcutInput(e.target.value)}
-                        onKeyDown={isRecording ? handleKeyDownRecording : undefined}
-                        placeholder="e.g. Alt+Space or Ctrl+Shift+N"
-                        className={`h-9 text-xs font-mono bg-black/50 border-white/[0.1] rounded-xl text-neutral-200 ${
-                          isRecording ? `border-amber-400 ring-2 ring-amber-400/30 text-amber-300 animate-pulse` : ""
-                        }`}
-                      />
-                    </div>
-
-                    <Button
-                      type="button"
-                      variant={isRecording ? "destructive" : "outline"}
-                      onClick={() => {
-                        setIsRecording(!isRecording);
-                        if (!isRecording) {
-                          setTimeout(() => recordInputRef.current?.focus(), 50);
-                        }
-                      }}
-                      className="h-9 px-3 text-xs rounded-xl"
-                    >
-                      {isRecording ? "Cancel" : "Record Keys"}
-                    </Button>
-
-                    <Button
-                      type="button"
-                      disabled={isSavingShortcut || shortcutInput === preferences.global_shortcut}
-                      onClick={handleApplyShortcut}
-                      className={`h-9 px-3 text-xs rounded-xl font-medium ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} hover:bg-white/[0.08]`}
-                    >
-                      {isSavingShortcut ? "Saving…" : "Apply shortcut"}
-                    </Button>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[10px] text-neutral-500 pt-1">
-                    <span>
-                      {isRecording
-                        ? "Recording… press a key combination (Esc cancels)."
-                        : "Example: Alt+Space or Ctrl+Shift+N. Include a modifier."}
-                    </span>
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      onClick={handleRestoreDefault}
-                      disabled={isSavingShortcut || preferences.global_shortcut === "Alt+Space"}
-                      className="h-5 px-1.5 text-[10px] text-neutral-400 hover:text-white gap-1"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      <span>Restore default</span>
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Feedback Notification Banner */}
-                {shortcutFeedback && (
-                  <div
-                    className={`p-2.5 rounded-xl text-xs flex items-center space-x-2 animate-in fade-in duration-150 ${
-                      shortcutFeedback.type === "success"
-                        ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
-                        : shortcutFeedback.type === "error"
-                        ? "bg-rose-500/10 border border-rose-500/30 text-rose-300"
-                        : "bg-sky-500/10 border border-sky-500/30 text-sky-300"
-                    }`}
-                  >
-                    {shortcutFeedback.type === "success" ? (
-                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-                    ) : shortcutFeedback.type === "error" ? (
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-                    ) : (
-                      <Info className="w-4 h-4 shrink-0 text-sky-400" />
-                    )}
-                    <span className="text-[11px] leading-relaxed">
-                      {shortcutFeedback.message}
-                    </span>
-                  </div>
-                )}
-              </Card>
-
-              {/* Built-in shortcuts */}
-              <div className="space-y-2">
-                <span className="text-xs font-medium text-neutral-400 block px-1">Built-in shortcuts</span>
-
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
-                  <div className="min-w-0 space-y-0.5">
-                    <span className="text-xs font-medium text-white block">
-                      Collapse island
-                    </span>
-                    <span className="text-[10px] text-neutral-400 block">
-                      Return from the expanded panel to the pill.
-                    </span>
-                  </div>
-                  <Button type="button" variant="outline" className="h-7 min-w-14 shrink-0 px-3 font-mono text-xs bg-black/30 border-white/[0.1] text-neutral-200">
-                    Esc
-                  </Button>
-                </Card>
-
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-4">
-                  <div className="min-w-0 space-y-0.5">
-                    <span className="text-xs font-medium text-white block">
-                      Submit search
-                    </span>
-                    <span className="text-[10px] text-neutral-400 block">
-                      Submit the current query from the search field.
-                    </span>
-                  </div>
-                  <Button type="button" variant="outline" className="h-7 min-w-14 shrink-0 px-3 font-mono text-xs bg-black/30 border-white/[0.1] text-neutral-200">
-                    Enter
-                  </Button>
-                </Card>
-              </div>
-            </div>
-          )}
-
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {/* 4. INTELLIGENCE CATEGORIES TAB                                  */}
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {activeTab === "categories" && (
-            <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold text-white">Intelligence Categories</h2>
-                  <p className="text-[11px] text-neutral-400">
-                    Customize which frontier streams appear inside the expanded Dynamic Island.
-                  </p>
-                </div>
-                <Badge
-                  variant="outline"
-                  className={`text-[10px] font-medium px-2 py-0.5 ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight}`}
-                >
-                  {activeCategoriesCount} of {totalCategoriesCount} Active
-                </Badge>
-              </div>
-
-              <div className="space-y-2">
-                {/* 1. World News */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
-                      <Globe className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-medium text-white block">
-                        World News & Diplomacy
-                      </span>
-                      <span className="text-[10px] text-neutral-400 block">
-                        Global geopolitical developments, breaking headlines and multilateral summits.
-                      </span>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={preferences.categories.world_news}
-                    onCheckedChange={() => onToggleCategory("world_news")}
-                  />
-                </Card>
-
-                {/* 2. Finance & Markets */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                      <TrendingUp className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-medium text-white block">
-                        Finance & Markets
-                      </span>
-                      <span className="text-[10px] text-neutral-400 block">
-                        Macro interest rates, equities, commodities, forex indices, and bond yields.
-                      </span>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={preferences.categories.finance_markets}
-                    onCheckedChange={() => onToggleCategory("finance_markets")}
-                  />
-                </Card>
-
-                {/* 3. Technology & AI */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-                      <Cpu className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-medium text-white block">
-                        Technology & Artificial Intelligence
-                      </span>
-                      <span className="text-[10px] text-neutral-400 block">
-                        Frontier LLMs, autonomous agents, semiconductor manufacturing, and software.
-                      </span>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={preferences.categories.technology_ai}
-                    onCheckedChange={() => onToggleCategory("technology_ai")}
-                  />
-                </Card>
-
-                {/* 4. Daily Knowledge */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                      <BookOpen className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-medium text-white block">
-                        Daily Knowledge & Mental Models
-                      </span>
-                      <span className="text-[10px] text-neutral-400 block">
-                        Cognitive heuristics, scientific principles, philosophy, and concise synthesis.
-                      </span>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={preferences.categories.daily_knowledge}
-                    onCheckedChange={() => onToggleCategory("daily_knowledge")}
-                  />
-                </Card>
-
-                {/* 5. Business & Commerce */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
-                      <Briefcase className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-medium text-white block">
-                        Business & Venture Ecosystems
-                      </span>
-                      <span className="text-[10px] text-neutral-400 block">
-                        Startups, enterprise acquisitions, venture capital rounds, and industrial supply chains.
-                      </span>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={preferences.categories.business}
-                    onCheckedChange={() => onToggleCategory("business")}
-                  />
-                </Card>
-
-                {/* 6. Science & Space */}
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-7 h-7 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
-                      <Microscope className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-medium text-white block">
-                        Science & Frontier Exploration
-                      </span>
-                      <span className="text-[10px] text-neutral-400 block">
-                        Astrophysics, clean energy fusion, biomedical breakthroughs, and quantum physics.
-                      </span>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={preferences.categories.science}
-                    onCheckedChange={() => onToggleCategory("science")}
-                  />
-                </Card>
-              </div>
-            </div>
-          )}
-
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {/* 5. NEWS SOURCES TAB                                             */}
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {activeTab === "sources" && (
-            <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold text-white">News Sources & RSS Feeds</h2>
-                  <p className="text-[11px] text-neutral-400">
-                    Trusted RSS & Atom publisher feeds aggregated directly into SQLite.
-                  </p>
-                </div>
-
-                <Button
-                  variant="outline"
-                  size="xs"
-                  disabled={isSyncingSources}
-                  onClick={handleSyncAllSources}
-                  className={`h-7 px-2.5 text-xs ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} gap-1.5 rounded-xl`}
-                >
-                  <RefreshCw className={`w-3 h-3 ${isSyncingSources ? "animate-spin" : ""}`} />
-                  <span>{isSyncingSources ? "Syncing..." : "Sync Feeds Now"}</span>
-                </Button>
-              </div>
-
-              {syncSourcesResult && (
-                <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 flex items-center justify-between">
-                  <span>{syncSourcesResult}</span>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={() => setSyncSourcesResult(null)}
-                    className="h-4 px-1 text-[9px] text-emerald-400"
-                  >
-                    ✕
-                  </Button>
-                </div>
-              )}
-
-              {/* Add Custom Publisher Feed */}
-              <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2.5">
-                <span className="text-xs font-semibold text-white block">Add Custom RSS / Atom Feed</span>
-                <form onSubmit={handleAddSource} className="space-y-2">
-                  <div className="grid grid-cols-3 gap-2">
-                    <Input
-                      type="text"
-                      placeholder="Publisher (e.g. Wired)"
-                      value={newSourceName}
-                      onChange={(e) => setNewSourceName(e.target.value)}
-                      className="h-8 text-xs bg-black/50 border-white/[0.08] rounded-xl text-neutral-200"
-                    />
-                    <Input
-                      type="url"
-                      placeholder="RSS Feed URL"
-                      value={newSourceUrl}
-                      onChange={(e) => setNewSourceUrl(e.target.value)}
-                      className="h-8 text-xs bg-black/50 border-white/[0.08] rounded-xl text-neutral-200"
-                    />
-                    <select
-                      value={newSourceCategory}
-                      onChange={(e) => setNewSourceCategory(e.target.value)}
-                      className="h-8 text-xs bg-black/60 border border-white/[0.08] rounded-xl px-2 text-neutral-200 focus:outline-none"
-                    >
-                      <option value="world">World</option>
-                      <option value="technology">Technology</option>
-                      <option value="ai">AI</option>
-                      <option value="finance">Finance</option>
-                      <option value="business">Business</option>
-                      <option value="science">Science</option>
-                      <option value="cybersecurity">Cybersecurity</option>
-                    </select>
-                  </div>
-
-                  {addSourceError && (
-                    <p className="text-[10px] text-rose-400">{addSourceError}</p>
-                  )}
-
-                  <div className="flex justify-end">
-                    <Button
-                      type="submit"
-                      disabled={isAddingSource || !newSourceName.trim() || !newSourceUrl.trim()}
-                      size="xs"
-                      className={`h-7 px-3 text-xs ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} gap-1 rounded-xl`}
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>{isAddingSource ? "Adding..." : "Add Publisher Feed"}</span>
-                    </Button>
-                  </div>
-                </form>
-              </Card>
-
-              {/* Configured Feeds List */}
-              <div className="space-y-2">
-                <span className="text-xs font-semibold text-neutral-400 block px-1">
-                  Active Publisher Feeds ({sources.filter((s) => s.enabled).length} of {sources.length} Enabled)
-                </span>
-
-                {isLoadingSources ? (
-                  <div className="space-y-2">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="h-12 bg-white/[0.02] rounded-2xl animate-pulse" />
-                    ))}
-                  </div>
-                ) : (
-                  sources.map((src) => (
-                    <Card
-                      key={src.id}
-                      className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3"
-                    >
-                      <div className="flex items-center space-x-3 truncate">
-                        <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-neutral-300 shrink-0">
-                          <Rss className="w-3.5 h-3.5 text-amber-400" />
-                        </div>
-                        <div className="truncate">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-xs font-medium text-white">{src.name}</span>
-                            <Badge
-                              variant="outline"
-                              className="text-[9px] px-1 py-0 uppercase bg-white/[0.04] border-white/[0.08] text-neutral-300"
-                            >
-                              {src.category}
-                            </Badge>
-                          </div>
-                          <span className="text-[10px] text-neutral-500 font-mono truncate block max-w-sm">
-                            {src.url}
-                          </span>
-                          {src.last_error && (
-                            <span className="text-[9px] text-rose-400 block truncate">
-                              Notice: {src.last_error}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-2 shrink-0">
-                        <Switch
-                          checked={src.enabled}
-                          onCheckedChange={() => handleToggleSource(src.id, src.enabled)}
-                        />
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <Button
-                                variant="ghost"
-                                size="icon-xs"
-                                onClick={() => handleDeleteSource(src.id)}
-                                className="text-neutral-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg"
-                              />
-                            }
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Remove Feed</TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </Card>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {/* 6. NOTIFICATIONS TAB                                            */}
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {activeTab === "notifications" && (
-            <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Notification Preferences</h2>
-                <p className="text-[11px] text-neutral-400">
-                  Configure real-time dispatch alerts, morning briefings, and audio tones.
-                </p>
-              </div>
-
-              <div className="space-y-2.5">
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-medium text-white block">
-                      Breaking News Dispatches
-                    </span>
-                    <span className="text-[10px] text-neutral-400 block">
-                      High-impact global events and emergency alerts.
-                    </span>
-                  </div>
-                  <Switch
-                    checked={preferences.notifications.breaking_news}
-                    onCheckedChange={() => onToggleNotification("breaking_news")}
-                  />
-                </Card>
-
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-medium text-white block">
-                      Daily Morning Briefing
-                    </span>
-                    <span className="text-[10px] text-neutral-400 block">
-                      Scheduled executive summary of macro conditions at market open.
-                    </span>
-                  </div>
-                  <Switch
-                    checked={preferences.notifications.daily_briefing}
-                    onCheckedChange={() => onToggleNotification("daily_briefing")}
-                  />
-                </Card>
-
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-medium text-white block">
-                      Market Movement & Volatility
-                    </span>
-                    <span className="text-[10px] text-neutral-400 block">
-                      Notifies when major indexes swing greater than ±2% in intraday sessions.
-                    </span>
-                  </div>
-                  <Switch
-                    checked={preferences.notifications.market_alerts}
-                    onCheckedChange={() => onToggleNotification("market_alerts")}
-                  />
-                </Card>
-
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
-                  <div className="space-y-0.5 flex items-center space-x-3">
-                    <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-neutral-300">
-                      {preferences.notifications.sound_enabled ? (
-                        <Volume2 className="w-4 h-4 text-amber-400" />
-                      ) : (
-                        <VolumeX className="w-4 h-4 text-neutral-500" />
-                      )}
-                    </div>
-                    <div>
-                      <span className="text-xs font-medium text-white block">
-                        Tactile Audio Chimes
-                      </span>
-                      <span className="text-[10px] text-neutral-400 block">
-                        Subtle acoustic feedback on expansion, query execution, and incoming dispatches.
-                      </span>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={preferences.notifications.sound_enabled}
-                    onCheckedChange={() => onToggleNotification("sound_enabled")}
-                  />
-                </Card>
-              </div>
-            </div>
-          )}
-
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {/* 6. ABOUT ORBIT TAB                                             */}
-          {/* ════════════════════════════════════════════════════════════════ */}
-          {activeTab === "about" && (
-            <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
-              <div>
-                <h2 className="text-sm font-semibold text-white">About Orbit</h2>
-                <p className="text-[11px] text-neutral-400">
-                  Application architecture, local persistence status, and native Win32 diagnostics.
-                </p>
-              </div>
-
-              {/* System Architecture Grid */}
-              <div className="grid grid-cols-2 gap-2.5 text-xs">
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl">
-                  <span className="text-[10px] uppercase font-semibold text-neutral-400 block">
-                    Host OS & Architecture
-                  </span>
-                  <span className="text-white font-medium mt-0.5 block capitalize">
-                    {systemInfo?.os ?? "Windows"} ({systemInfo?.arch ?? "x86_64"})
-                  </span>
-                </Card>
-
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl">
-                  <span className="text-[10px] uppercase font-semibold text-neutral-400 block">
-                    Tauri Native Runtime
-                  </span>
-                  <span className={`font-medium mt-0.5 block ${accent.text}`}>
-                    {systemInfo?.tauri_version ?? "Tauri 2"} • {appStatus?.runtime_mode ?? "Active"}
-                  </span>
-                </Card>
-
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl col-span-2">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] uppercase font-semibold text-neutral-400 block">
-                        Dynamic Island Window Configuration
-                      </span>
-                      <span className="text-neutral-300 text-[11px] mt-0.5 block">
-                        Top-Center • Borderless • Transparent • Always-on-Top • Native Win32
-                      </span>
-                    </div>
-                    <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-300 border-emerald-500/30">
-                      <ShieldCheck className="w-3 h-3 mr-1" />
-                      Win32 Anchored
-                    </Badge>
-                  </div>
-                  {windowGeometry && (
-                    <span className="text-amber-300/80 font-mono text-[10px] mt-1 block">
-                      Live Geometry: {windowGeometry.width} × {windowGeometry.height} px at ({windowGeometry.x}, {windowGeometry.y}) • Scale {windowGeometry.scale_factor}x
-                    </span>
-                  )}
-                </Card>
-
-                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl col-span-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2.5">
-                      <div className={`w-6 h-6 rounded-lg ${accent.bgSubtle} border ${accent.borderSubtle} flex items-center justify-center ${accent.text}`}>
-                        <Database className="w-3.5 h-3.5" />
+                  {/* 1. World News */}
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+                        <Globe className="w-4 h-4" />
                       </div>
                       <div>
-                        <span className="text-[10px] uppercase font-semibold text-neutral-400 block">
-                          SQLite Database Storage
+                        <span className="text-xs font-medium text-white block">
+                          World News & Diplomacy
                         </span>
-                        <span className="text-white font-mono text-[10px] mt-0.5 block break-all">
-                          {dbStats?.db_path ?? "D:\\extra file\\database\\nexora.db"}
+                        <span className="text-[10px] text-neutral-400 block">
+                          Global geopolitical developments, breaking headlines and multilateral summits.
                         </span>
                       </div>
                     </div>
-                    <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-300 border-emerald-500/30">
-                      Active WAL
-                    </Badge>
-                  </div>
-                  {dbStats && (
-                    <div className="flex items-center space-x-3 text-[10px] text-neutral-400 mt-2 pt-2 border-t border-white/[0.04]">
-                      <span>Sources: <strong className="text-white">{dbStats.news_sources}</strong></span>
-                      <span>•</span>
-                      <span>Categories: <strong className="text-white">{dbStats.category_preferences}</strong></span>
-                      <span>•</span>
-                      <span>Articles: <strong className="text-white">{dbStats.articles}</strong></span>
-                      <span>•</span>
-                      <span>Briefings: <strong className="text-white">{dbStats.briefings}</strong></span>
+                    <Switch
+                      checked={preferences.categories.world_news}
+                      onCheckedChange={() => onToggleCategory("world_news")}
+                    />
+                  </Card>
+
+                  {/* 2. Finance & Markets */}
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                        <TrendingUp className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-white block">
+                          Finance & Markets
+                        </span>
+                        <span className="text-[10px] text-neutral-400 block">
+                          Macro interest rates, equities, commodities, forex indices, and bond yields.
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </Card>
+                    <Switch
+                      checked={preferences.categories.finance_markets}
+                      onCheckedChange={() => onToggleCategory("finance_markets")}
+                    />
+                  </Card>
+
+                  {/* 3. Technology & AI */}
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                        <Cpu className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-white block">
+                          Technology & Artificial Intelligence
+                        </span>
+                        <span className="text-[10px] text-neutral-400 block">
+                          Frontier LLMs, autonomous agents, semiconductor manufacturing, and software.
+                        </span>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={preferences.categories.technology_ai}
+                      onCheckedChange={() => onToggleCategory("technology_ai")}
+                    />
+                  </Card>
+
+                  {/* 4. Daily Knowledge */}
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                        <BookOpen className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-white block">
+                          Daily Knowledge & Mental Models
+                        </span>
+                        <span className="text-[10px] text-neutral-400 block">
+                          Cognitive heuristics, scientific principles, philosophy, and concise synthesis.
+                        </span>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={preferences.categories.daily_knowledge}
+                      onCheckedChange={() => onToggleCategory("daily_knowledge")}
+                    />
+                  </Card>
+
+                  {/* 5. Business & Commerce */}
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                        <Briefcase className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-white block">
+                          Business & Venture Ecosystems
+                        </span>
+                        <span className="text-[10px] text-neutral-400 block">
+                          Startups, enterprise acquisitions, venture capital rounds, and industrial supply chains.
+                        </span>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={preferences.categories.business}
+                      onCheckedChange={() => onToggleCategory("business")}
+                    />
+                  </Card>
+
+                  {/* 6. Science & Space */}
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-7 h-7 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+                        <Microscope className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-white block">
+                          Science & Frontier Exploration
+                        </span>
+                        <span className="text-[10px] text-neutral-400 block">
+                          Astrophysics, clean energy fusion, biomedical breakthroughs, and quantum physics.
+                        </span>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={preferences.categories.science}
+                      onCheckedChange={() => onToggleCategory("science")}
+                    />
+                  </Card>
+                </div>
               </div>
+            )}
 
-              {/* Native Host Diagnostic Ping */}
-              <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2">
-                <span className="text-xs font-semibold text-white block">
-                  Native Host IPC Ping Diagnostic
-                </span>
-                <form onSubmit={handleTestPing} className="flex space-x-2">
-                  <Input
-                    type="text"
-                    value={pingInput}
-                    onChange={(e) => setPingInput(e.target.value)}
-                    className="h-8 text-xs bg-black/60 border-white/[0.08] rounded-xl text-neutral-200"
-                  />
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* 5. NEWS SOURCES TAB                                             */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {activeTab === "sources" && (
+              <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold text-white">News Sources & RSS Feeds</h2>
+                    <p className="text-[11px] text-neutral-400">
+                      Trusted RSS & Atom publisher feeds aggregated directly into SQLite.
+                    </p>
+                  </div>
+
                   <Button
-                    type="submit"
-                    disabled={isPinging}
-                    size="sm"
-                    className={`h-8 px-3 ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} text-xs font-medium cursor-pointer transition-colors`}
+                    variant="outline"
+                    size="xs"
+                    disabled={isSyncingSources}
+                    onClick={handleSyncAllSources}
+                    className={`h-7 px-2.5 text-xs ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} gap-1.5 rounded-xl`}
                   >
-                    {isPinging ? "Testing..." : "Send Ping"}
+                    <RefreshCw className={`w-3 h-3 ${isSyncingSources ? "animate-spin" : ""}`} />
+                    <span>{isSyncingSources ? "Syncing..." : "Sync Feeds Now"}</span>
                   </Button>
-                </form>
-
-                {pingResponse && (
-                  <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-300 font-mono">
-                    ✓ {pingResponse}
-                  </div>
-                )}
-                {pingError && (
-                  <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-[11px] text-rose-300 font-mono">
-                    ✕ {pingError}
-                  </div>
-                )}
-              </Card>
-
-              {/* Reset to Factory Defaults */}
-              <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <span className="text-xs font-medium text-white block">
-                    Restore Factory Default Preferences
-                  </span>
-                  <span className="text-[10px] text-neutral-400 block">
-                    Reverts all options, shortcuts, categories, and theme accents to original state.
-                  </span>
                 </div>
 
-                {confirmReset ? (
-                  <div className="flex items-center space-x-2">
-                    <Button
-                      variant="destructive"
-                      size="xs"
-                      onClick={async () => {
-                        await onResetAllPreferences();
-                        setConfirmReset(false);
-                      }}
-                      className="h-7 px-2.5 text-xs rounded-xl"
-                    >
-                      Confirm Reset
-                    </Button>
+                {syncSourcesResult && (
+                  <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 flex items-center justify-between">
+                    <span>{syncSourcesResult}</span>
                     <Button
                       variant="ghost"
                       size="xs"
-                      onClick={() => setConfirmReset(false)}
-                      className="h-7 px-2 text-xs rounded-xl text-neutral-400"
+                      onClick={() => setSyncSourcesResult(null)}
+                      className="h-4 px-1 text-[9px] text-emerald-400"
                     >
-                      Cancel
+                      ✕
                     </Button>
                   </div>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setConfirmReset(true)}
-                    className="h-7 px-2.5 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border-rose-500/30 rounded-xl"
-                  >
-                    Reset Defaults
-                  </Button>
                 )}
-              </Card>
-            </div>
-          )}
+
+                {/* Add Custom Publisher Feed */}
+                <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2.5">
+                  <span className="text-xs font-semibold text-white block">Add Custom RSS / Atom Feed</span>
+                  <form onSubmit={handleAddSource} className="space-y-2">
+                    <div className="grid grid-cols-3 gap-2">
+                      <Input
+                        type="text"
+                        placeholder="Publisher (e.g. Wired)"
+                        value={newSourceName}
+                        onChange={(e) => setNewSourceName(e.target.value)}
+                        className="h-8 text-xs bg-black/50 border-white/[0.08] rounded-xl text-neutral-200"
+                      />
+                      <Input
+                        type="url"
+                        placeholder="RSS Feed URL"
+                        value={newSourceUrl}
+                        onChange={(e) => setNewSourceUrl(e.target.value)}
+                        className="h-8 text-xs bg-black/50 border-white/[0.08] rounded-xl text-neutral-200"
+                      />
+                      <select
+                        value={newSourceCategory}
+                        onChange={(e) => setNewSourceCategory(e.target.value)}
+                        className="h-8 text-xs bg-black/60 border border-white/[0.08] rounded-xl px-2 text-neutral-200 focus:outline-none"
+                      >
+                        <option value="world">World</option>
+                        <option value="technology">Technology</option>
+                        <option value="ai">AI</option>
+                        <option value="finance">Finance</option>
+                        <option value="business">Business</option>
+                        <option value="science">Science</option>
+                        <option value="cybersecurity">Cybersecurity</option>
+                      </select>
+                    </div>
+
+                    {addSourceError && (
+                      <p className="text-[10px] text-rose-400">{addSourceError}</p>
+                    )}
+
+                    <div className="flex justify-end">
+                      <Button
+                        type="submit"
+                        disabled={isAddingSource || !newSourceName.trim() || !newSourceUrl.trim()}
+                        size="xs"
+                        className={`h-7 px-3 text-xs ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} gap-1 rounded-xl`}
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>{isAddingSource ? "Adding..." : "Add Publisher Feed"}</span>
+                      </Button>
+                    </div>
+                  </form>
+                </Card>
+
+                {/* Configured Feeds List */}
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-neutral-400 block px-1">
+                    Active Publisher Feeds ({sources.filter((s) => s.enabled).length} of {sources.length} Enabled)
+                  </span>
+
+                  {isLoadingSources ? (
+                    <div className="space-y-2">
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="h-12 bg-white/[0.02] rounded-2xl animate-pulse" />
+                      ))}
+                    </div>
+                  ) : (
+                    sources.map((src) => (
+                      <Card
+                        key={src.id}
+                        className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3"
+                      >
+                        <div className="flex items-center space-x-3 truncate">
+                          <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-neutral-300 shrink-0">
+                            <Rss className="w-3.5 h-3.5 text-amber-400" />
+                          </div>
+                          <div className="truncate">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-xs font-medium text-white">{src.name}</span>
+                              <Badge
+                                variant="outline"
+                                className="text-[9px] px-1 py-0 uppercase bg-white/[0.04] border-white/[0.08] text-neutral-300"
+                              >
+                                {src.category}
+                              </Badge>
+                            </div>
+                            <span className="text-[10px] text-neutral-500 font-mono truncate block max-w-sm">
+                              {src.url}
+                            </span>
+                            {src.last_error && (
+                              <span className="text-[9px] text-rose-400 block truncate">
+                                Notice: {src.last_error}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2 shrink-0">
+                          <Switch
+                            checked={src.enabled}
+                            onCheckedChange={() => handleToggleSource(src.id, src.enabled)}
+                          />
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  onClick={() => handleDeleteSource(src.id)}
+                                  className="text-neutral-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg"
+                                />
+                              }
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Remove Feed</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* 6. NOTIFICATIONS TAB                                            */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {activeTab === "notifications" && (
+              <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Notification Preferences</h2>
+                  <p className="text-[11px] text-neutral-400">
+                    Configure real-time dispatch alerts, morning briefings, and audio tones.
+                  </p>
+                </div>
+
+                <div className="space-y-2.5">
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-medium text-white block">
+                        Breaking News Dispatches
+                      </span>
+                      <span className="text-[10px] text-neutral-400 block">
+                        High-impact global events and emergency alerts.
+                      </span>
+                    </div>
+                    <Switch
+                      checked={preferences.notifications.breaking_news}
+                      onCheckedChange={() => onToggleNotification("breaking_news")}
+                    />
+                  </Card>
+
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-medium text-white block">
+                        Daily Morning Briefing
+                      </span>
+                      <span className="text-[10px] text-neutral-400 block">
+                        Scheduled executive summary of macro conditions at market open.
+                      </span>
+                    </div>
+                    <Switch
+                      checked={preferences.notifications.daily_briefing}
+                      onCheckedChange={() => onToggleNotification("daily_briefing")}
+                    />
+                  </Card>
+
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-medium text-white block">
+                        Market Movement & Volatility
+                      </span>
+                      <span className="text-[10px] text-neutral-400 block">
+                        Notifies when major indexes swing greater than ±2% in intraday sessions.
+                      </span>
+                    </div>
+                    <Switch
+                      checked={preferences.notifications.market_alerts}
+                      onCheckedChange={() => onToggleNotification("market_alerts")}
+                    />
+                  </Card>
+
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
+                    <div className="space-y-0.5 flex items-center space-x-3">
+                      <div className="w-7 h-7 rounded-lg bg-white/[0.04] border border-white/[0.06] flex items-center justify-center text-neutral-300">
+                        {preferences.notifications.sound_enabled ? (
+                          <Volume2 className="w-4 h-4 text-amber-400" />
+                        ) : (
+                          <VolumeX className="w-4 h-4 text-neutral-500" />
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-white block">
+                          Tactile Audio Chimes
+                        </span>
+                        <span className="text-[10px] text-neutral-400 block">
+                          Subtle acoustic feedback on expansion, query execution, and incoming dispatches.
+                        </span>
+                      </div>
+                    </div>
+                    <Switch
+                      checked={preferences.notifications.sound_enabled}
+                      onCheckedChange={() => onToggleNotification("sound_enabled")}
+                    />
+                  </Card>
+                </div>
+              </div>
+            )}
+
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* 5. AI CONFIGURATION TAB                                         */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {activeTab === "ai" && (
+              <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold text-white">AI Intelligence Engine</h2>
+                    <p className="text-[11px] text-neutral-400">
+                      Configure OpenAI credentials, model parameters, explanation depth, and briefing lengths.
+                    </p>
+                  </div>
+
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] px-2 py-0.5 ${aiConfig?.has_key
+                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                        : "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                      }`}
+                  >
+                    <Bot className="w-3 h-3 mr-1" />
+                    {aiConfig?.has_key ? "OpenAI Connected" : "Local Heuristic Mode"}
+                  </Badge>
+                </div>
+
+                {/* API Credentials & Model Card */}
+                <Card className="p-4 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <KeyRound className="w-4 h-4 text-amber-400" />
+                      <span className="text-xs font-semibold text-white">OpenAI API Credentials</span>
+                    </div>
+                    <span className="text-[10px] text-neutral-400">Never exposed to frontend</span>
+                  </div>
+
+                  <form onSubmit={handleSaveAiConfig} className="space-y-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-medium text-neutral-300 block">
+                        OpenAI API Key
+                      </label>
+                      <div className="relative flex items-center">
+                        <Input
+                          type={showApiKey ? "text" : "password"}
+                          value={apiKeyInput}
+                          onChange={(e) => setApiKeyInput(e.target.value)}
+                          placeholder="sk-proj-..."
+                          className="h-8 text-xs font-mono bg-black/40 border-white/[0.08] focus-visible:ring-1 focus-visible:ring-amber-400/40 pr-10 text-white placeholder:text-neutral-600 rounded-xl"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          className="absolute right-1 text-neutral-400 hover:text-white"
+                          title={showApiKey ? "Hide Key" : "Show Key"}
+                        >
+                          {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </Button>
+                      </div>
+                      <span className="text-[10px] text-neutral-400 block">
+                        Saved securely to local SQLite settings or inherited from the OPENAI_API_KEY environment variable.
+                      </span>
+                    </div>
+
+                    {/* Model Selection */}
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setAiModel("gpt-4o-mini")}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${aiModel === "gpt-4o-mini"
+                            ? "bg-amber-400/10 border-amber-400/40 text-amber-200"
+                            : "bg-white/[0.02] border-white/[0.06] text-neutral-400 hover:text-white"
+                          }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold">gpt-4o-mini</span>
+                          <Badge variant="outline" className="text-[9px] bg-amber-400/20 text-amber-300 border-amber-400/30">
+                            Recommended
+                          </Badge>
+                        </div>
+                        <span className="text-[10px] opacity-80 block mt-1">
+                          Ultra-fast, cost-efficient, high accuracy for news summarization.
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setAiModel("gpt-4o")}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${aiModel === "gpt-4o"
+                            ? "bg-amber-400/10 border-amber-400/40 text-amber-200"
+                            : "bg-white/[0.02] border-white/[0.06] text-neutral-400 hover:text-white"
+                          }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold">gpt-4o</span>
+                          <Badge variant="outline" className="text-[9px] bg-white/[0.05] text-neutral-300 border-white/[0.1]">
+                            Flagship
+                          </Badge>
+                        </div>
+                        <span className="text-[10px] opacity-80 block mt-1">
+                          Deep reasoning, advanced cross-correlation, and strategic synthesis.
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center justify-between pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleTestAiConnection}
+                        disabled={isTestingAi || !aiConfig?.has_key}
+                        className="h-7 text-xs px-2.5 rounded-xl border-white/[0.08] hover:bg-white/[0.06] text-neutral-300 gap-1.5"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isTestingAi ? "animate-spin text-amber-400" : ""}`} />
+                        <span>{isTestingAi ? "Testing..." : "Test Connection"}</span>
+                      </Button>
+
+                      <Button
+                        type="submit"
+                        disabled={isSavingAiConfig}
+                        className="h-7 text-xs px-3 rounded-xl font-medium bg-amber-400 hover:bg-amber-300 text-neutral-950 font-semibold gap-1.5 cursor-pointer"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>{isSavingAiConfig ? "Saving..." : "Save AI Settings"}</span>
+                      </Button>
+                    </div>
+
+                    {/* Test & Save Feedback Banners */}
+                    {aiConfigFeedback && (
+                      <div
+                        className={`p-2.5 rounded-xl text-xs flex items-center space-x-2 animate-in fade-in duration-150 ${aiConfigFeedback.type === "success"
+                            ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
+                            : "bg-rose-500/10 border border-rose-500/30 text-rose-300"
+                          }`}
+                      >
+                        {aiConfigFeedback.type === "success" ? (
+                          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                        )}
+                        <span className="text-[11px] leading-relaxed">{aiConfigFeedback.message}</span>
+                      </div>
+                    )}
+
+                    {aiTestResult && (
+                      <div className="p-2.5 rounded-xl text-xs flex items-center space-x-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 animate-in fade-in duration-150">
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                        <span className="text-[11px] leading-relaxed">{aiTestResult}</span>
+                      </div>
+                    )}
+
+                    {aiTestError && (
+                      <div className="p-2.5 rounded-xl text-xs flex items-center space-x-2 bg-rose-500/10 border border-rose-500/30 text-rose-300 animate-in fade-in duration-150">
+                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                        <span className="text-[11px] leading-relaxed">{aiTestError}</span>
+                      </div>
+                    )}
+                  </form>
+                </Card>
+
+                {/* Default Explanation Mode Card */}
+                <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-white">Default Explanation Mode</span>
+                    <span className="text-[10px] text-neutral-400">Controls intelligence depth</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      {
+                        id: "simple",
+                        name: "Simple",
+                        desc: "Plain English, beginner-friendly explanations.",
+                      },
+                      {
+                        id: "detailed",
+                        name: "Detailed",
+                        desc: "Full context, causes, timeline, and actors.",
+                      },
+                      {
+                        id: "decision",
+                        name: "Decision",
+                        desc: "Strategic implications and key indicators to watch.",
+                      },
+                    ].map((mode) => (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        onClick={() => setExplanationMode(mode.id)}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${explanationMode === mode.id
+                            ? "bg-amber-400/10 border-amber-400/40 text-amber-200"
+                            : "bg-white/[0.02] border-white/[0.06] text-neutral-400 hover:text-white"
+                          }`}
+                      >
+                        <span className="text-xs font-semibold block">{mode.name}</span>
+                        <span className="text-[10px] opacity-80 block mt-0.5">{mode.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+
+                {/* Default Briefing Length Card */}
+                <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-white">Default Briefing Duration</span>
+                    <span className="text-[10px] text-neutral-400">Target reading/spoken length</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      {
+                        id: "short",
+                        name: "Short (~2 min)",
+                        desc: "~300 words summary of top dispatches.",
+                      },
+                      {
+                        id: "standard",
+                        name: "Standard (~5 min)",
+                        desc: "~750 words comprehensive executive overview.",
+                      },
+                      {
+                        id: "detailed",
+                        name: "Detailed (~10 min)",
+                        desc: "~1,400 words in-depth strategic analysis.",
+                      },
+                    ].map((len) => (
+                      <button
+                        key={len.id}
+                        type="button"
+                        onClick={() => setBriefingLength(len.id)}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${briefingLength === len.id
+                            ? "bg-amber-400/10 border-amber-400/40 text-amber-200"
+                            : "bg-white/[0.02] border-white/[0.06] text-neutral-400 hover:text-white"
+                          }`}
+                      >
+                        <span className="text-xs font-semibold block">{len.name}</span>
+                        <span className="text-[10px] opacity-80 block mt-0.5">{len.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+
+                {/* Privacy & Safeguards Note */}
+                <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.04] flex items-start space-x-2.5 text-[11px] text-neutral-400">
+                  <Lock className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <span className="font-medium text-neutral-300 block">Strict Privacy & Cost Optimization</span>
+                    <p className="text-[10px] text-neutral-400 leading-relaxed">
+                      API credentials are encrypted in local SQLite storage (<code className="text-amber-400/80">D:\extra file\database\nexora.db</code>) and never surfaced in frontend code. Story clustering and SHA-256 fingerprinting prevent duplicate LLM calls, minimizing OpenAI token costs.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {/* 6. ABOUT ORBIT TAB                                             */}
+            {/* ════════════════════════════════════════════════════════════════ */}
+            {activeTab === "about" && (
+              <div className="w-full min-w-0 space-y-4 animate-in fade-in duration-150">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">About Orbit</h2>
+                  <p className="text-[11px] text-neutral-400">
+                    Application architecture, local persistence status, and native Win32 diagnostics.
+                  </p>
+                </div>
+
+                {/* System Architecture Grid */}
+                <div className="grid grid-cols-2 gap-2.5 text-xs">
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl">
+                    <span className="text-[10px] uppercase font-semibold text-neutral-400 block">
+                      Host OS & Architecture
+                    </span>
+                    <span className="text-white font-medium mt-0.5 block capitalize">
+                      {systemInfo?.os ?? "Windows"} ({systemInfo?.arch ?? "x86_64"})
+                    </span>
+                  </Card>
+
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl">
+                    <span className="text-[10px] uppercase font-semibold text-neutral-400 block">
+                      Tauri Native Runtime
+                    </span>
+                    <span className={`font-medium mt-0.5 block ${accent.text}`}>
+                      {systemInfo?.tauri_version ?? "Tauri 2"} • {appStatus?.runtime_mode ?? "Active"}
+                    </span>
+                  </Card>
+
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl col-span-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] uppercase font-semibold text-neutral-400 block">
+                          Dynamic Island Window Configuration
+                        </span>
+                        <span className="text-neutral-300 text-[11px] mt-0.5 block">
+                          Top-Center • Borderless • Transparent • Always-on-Top • Native Win32
+                        </span>
+                      </div>
+                      <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-300 border-emerald-500/30">
+                        <ShieldCheck className="w-3 h-3 mr-1" />
+                        Win32 Anchored
+                      </Badge>
+                    </div>
+                    {windowGeometry && (
+                      <span className="text-amber-300/80 font-mono text-[10px] mt-1 block">
+                        Live Geometry: {windowGeometry.width} × {windowGeometry.height} px at ({windowGeometry.x}, {windowGeometry.y}) • Scale {windowGeometry.scale_factor}x
+                      </span>
+                    )}
+                  </Card>
+
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl col-span-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2.5">
+                        <div className={`w-6 h-6 rounded-lg ${accent.bgSubtle} border ${accent.borderSubtle} flex items-center justify-center ${accent.text}`}>
+                          <Database className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase font-semibold text-neutral-400 block">
+                            SQLite Database Storage
+                          </span>
+                          <span className="text-white font-mono text-[10px] mt-0.5 block break-all">
+                            {dbStats?.db_path ?? "D:\\extra file\\database\\nexora.db"}
+                          </span>
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-300 border-emerald-500/30">
+                        Active WAL
+                      </Badge>
+                    </div>
+                    {dbStats && (
+                      <div className="flex items-center space-x-3 text-[10px] text-neutral-400 mt-2 pt-2 border-t border-white/[0.04]">
+                        <span>Sources: <strong className="text-white">{dbStats.news_sources}</strong></span>
+                        <span>•</span>
+                        <span>Categories: <strong className="text-white">{dbStats.category_preferences}</strong></span>
+                        <span>•</span>
+                        <span>Articles: <strong className="text-white">{dbStats.articles}</strong></span>
+                        <span>•</span>
+                        <span>Briefings: <strong className="text-white">{dbStats.briefings}</strong></span>
+                      </div>
+                    )}
+                  </Card>
+                </div>
+
+                {/* Native Host Diagnostic Ping */}
+                <Card className="p-3.5 bg-white/[0.02] border-white/[0.06] rounded-2xl space-y-2">
+                  <span className="text-xs font-semibold text-white block">
+                    Native Host IPC Ping Diagnostic
+                  </span>
+                  <form onSubmit={handleTestPing} className="flex space-x-2">
+                    <Input
+                      type="text"
+                      value={pingInput}
+                      onChange={(e) => setPingInput(e.target.value)}
+                      className="h-8 text-xs bg-black/60 border-white/[0.08] rounded-xl text-neutral-200"
+                    />
+                    <Button
+                      type="submit"
+                      disabled={isPinging}
+                      size="sm"
+                      className={`h-8 px-3 ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} text-xs font-medium cursor-pointer transition-colors`}
+                    >
+                      {isPinging ? "Testing..." : "Send Ping"}
+                    </Button>
+                  </form>
+
+                  {pingResponse && (
+                    <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-300 font-mono">
+                      ✓ {pingResponse}
+                    </div>
+                  )}
+                  {pingError && (
+                    <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-[11px] text-rose-300 font-mono">
+                      ✕ {pingError}
+                    </div>
+                  )}
+                </Card>
+
+                {/* Reset to Factory Defaults */}
+                <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-medium text-white block">
+                      Restore Factory Default Preferences
+                    </span>
+                    <span className="text-[10px] text-neutral-400 block">
+                      Reverts all options, shortcuts, categories, and theme accents to original state.
+                    </span>
+                  </div>
+
+                  {confirmReset ? (
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        variant="destructive"
+                        size="xs"
+                        onClick={async () => {
+                          await onResetAllPreferences();
+                          setConfirmReset(false);
+                        }}
+                        className="h-7 px-2.5 text-xs rounded-xl"
+                      >
+                        Confirm Reset
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setConfirmReset(false)}
+                        className="h-7 px-2 text-xs rounded-xl text-neutral-400"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConfirmReset(true)}
+                      className="h-7 px-2.5 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border-rose-500/30 rounded-xl"
+                    >
+                      Reset Defaults
+                    </Button>
+                  )}
+                </Card>
+              </div>
+            )}
           </div>
         </ScrollArea>
       </div>

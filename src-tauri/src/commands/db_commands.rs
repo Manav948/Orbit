@@ -139,7 +139,9 @@ pub fn db_get_articles(
 pub fn db_get_articles_paginated(
     state: State<'_, DbState>,
     category: Option<String>,
+    publisher: Option<String>,
     search: Option<String>,
+    sort_by: Option<String>,
     limit: Option<u32>,
     offset: Option<u32>,
 ) -> Result<Vec<Article>, String> {
@@ -147,10 +149,20 @@ pub fn db_get_articles_paginated(
     get_articles_paginated(
         &conn,
         category.as_deref(),
+        publisher.as_deref(),
         search.as_deref(),
+        sort_by.as_deref(),
         limit.unwrap_or(30),
         offset.unwrap_or(0),
     )
+}
+
+#[tauri::command]
+pub fn db_get_publishers(
+    state: State<'_, DbState>,
+) -> Result<Vec<String>, String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    crate::db::repository::get_publishers(&conn)
 }
 
 #[tauri::command]
@@ -225,4 +237,118 @@ pub fn db_get_stats(
 ) -> Result<serde_json::Value, String> {
     let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
     get_db_stats(&conn)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Intelligence Commands
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn ai_get_config(
+    state: State<'_, DbState>,
+) -> Result<crate::ai::AiConfigInfo, String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    Ok(crate::ai::get_ai_config_info(&conn))
+}
+
+#[tauri::command]
+pub fn ai_save_config(
+    state: State<'_, DbState>,
+    api_key: Option<String>,
+    model: Option<String>,
+    explanation_mode: Option<String>,
+    briefing_length: Option<String>,
+) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    if let Some(key) = api_key {
+        let trimmed = key.trim();
+        if !trimmed.is_empty() && !trimmed.contains('•') {
+            crate::db::repository::upsert_setting(&conn, "openai_api_key", trimmed)?;
+        }
+    }
+    if let Some(mdl) = model {
+        crate::db::repository::upsert_setting(&conn, "openai_model", mdl.trim())?;
+    }
+    if let Some(mode) = explanation_mode {
+        crate::db::repository::upsert_setting(&conn, "ai_explanation_mode", mode.trim())?;
+    }
+    if let Some(len) = briefing_length {
+        crate::db::repository::upsert_setting(&conn, "briefing_length", len.trim())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ai_test_connection(
+    state: State<'_, DbState>,
+) -> Result<String, String> {
+    crate::ai::test_ai_connection(&state).await
+}
+
+#[tauri::command]
+pub async fn ai_process_news(
+    state: State<'_, DbState>,
+    category: Option<String>,
+    limit: Option<u32>,
+    force_refresh: Option<bool>,
+) -> Result<Vec<crate::db::repository::StoryClusterWithArticles>, String> {
+    crate::ai::process_news_intelligence(
+        &state,
+        category.as_deref(),
+        limit.unwrap_or(40),
+        force_refresh.unwrap_or(false),
+    )
+    .await
+}
+
+#[tauri::command]
+pub fn ai_get_stories(
+    state: State<'_, DbState>,
+    category: Option<String>,
+    search: Option<String>,
+    sort_by: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<crate::db::repository::StoryClusterWithArticles>, String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    crate::db::repository::get_story_clusters_with_articles(
+        &conn,
+        category.as_deref(),
+        search.as_deref(),
+        sort_by.as_deref(),
+        limit.unwrap_or(20),
+    )
+}
+
+#[tauri::command]
+pub async fn ai_generate_briefing(
+    state: State<'_, DbState>,
+    briefing_type: String,
+    briefing_length: String,
+) -> Result<Briefing, String> {
+    crate::ai::generate_briefing(&state, &briefing_type, &briefing_length).await
+}
+
+#[tauri::command]
+pub fn ai_get_briefings(
+    state: State<'_, DbState>,
+    briefing_type: Option<String>,
+    search: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<Briefing>, String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    crate::db::repository::get_briefings_by_type(
+        &conn,
+        briefing_type.as_deref(),
+        search.as_deref(),
+        limit.unwrap_or(15),
+    )
+}
+
+#[tauri::command]
+pub async fn ai_ask_question(
+    state: State<'_, DbState>,
+    question: String,
+    story_context: Option<String>,
+) -> Result<crate::ai::AiAnswer, String> {
+    crate::ai::ask_question(&state, &question, story_context.as_deref()).await
 }

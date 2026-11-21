@@ -1,13 +1,16 @@
+mod ai;
 mod commands;
 mod db;
 mod news;
 
 use commands::db_commands::{
-    db_add_news_source, db_delete_news_source, db_delete_setting, db_get_all_settings,
-    db_get_articles, db_get_articles_paginated, db_get_briefings_by_category,
-    db_get_category_preferences, db_get_latest_briefings, db_get_news_sources, db_get_setting,
-    db_get_stats, db_insert_articles, db_prune_old_articles, db_set_news_source_enabled,
-    db_sync_news_feeds, db_upsert_briefing, db_upsert_category_preference, db_upsert_setting,
+    ai_ask_question, ai_generate_briefing, ai_get_briefings, ai_get_config, ai_get_stories,
+    ai_process_news, ai_save_config, ai_test_connection, db_add_news_source, db_delete_news_source,
+    db_delete_setting, db_get_all_settings, db_get_articles, db_get_articles_paginated,
+    db_get_briefings_by_category, db_get_category_preferences, db_get_latest_briefings,
+    db_get_news_sources, db_get_publishers, db_get_setting, db_get_stats, db_insert_articles, db_prune_old_articles,
+    db_set_news_source_enabled, db_sync_news_feeds, db_upsert_briefing,
+    db_upsert_category_preference, db_upsert_setting,
 };
 use commands::system::{
     get_app_status, get_preferences, get_system_info, get_window_geometry, hide_window,
@@ -230,6 +233,7 @@ pub fn run() {
             db_insert_articles,
             db_get_articles,
             db_get_articles_paginated,
+            db_get_publishers,
             db_prune_old_articles,
             db_upsert_briefing,
             db_get_latest_briefings,
@@ -237,6 +241,15 @@ pub fn run() {
             db_get_category_preferences,
             db_upsert_category_preference,
             db_get_stats,
+            // AI Intelligence commands
+            ai_get_config,
+            ai_save_config,
+            ai_test_connection,
+            ai_process_news,
+            ai_get_stories,
+            ai_generate_briefing,
+            ai_get_briefings,
+            ai_ask_question,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Orbit application");

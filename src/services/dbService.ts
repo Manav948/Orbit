@@ -66,12 +66,62 @@ export interface Briefing {
   category: string;
   created_at: string;
   last_updated_at: string;
+  briefing_type?: string | null;
+  briefing_length?: string | null;
+  model_used?: string | null;
+  articles_count?: number | null;
 }
 
 export interface NewBriefing {
   title: string;
   summary: string;
   category: string;
+  briefing_type?: string | null;
+  briefing_length?: string | null;
+  model_used?: string | null;
+  articles_count?: number | null;
+}
+
+export interface StoryCluster {
+  id: number;
+  cluster_hash: string;
+  category: string;
+  title: string;
+  what_happened: string;
+  why_it_happened: string;
+  why_it_matters: string;
+  what_happens_next: string;
+  what_is_uncertain: string;
+  simple_summary?: string | null;
+  detailed_summary?: string | null;
+  decision_summary?: string | null;
+  importance_score: number;
+  model_used: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StoryClusterWithArticles {
+  cluster: StoryCluster;
+  articles: Article[];
+}
+
+export interface AiConfigInfo {
+  has_key: boolean;
+  masked_key: string;
+  model: string;
+  explanation_mode: string;
+  briefing_length: string;
+}
+
+export interface AiAnswer {
+  question: string;
+  answer: string;
+  simple_explanation?: string | null;
+  decision_explanation?: string | null;
+  sources: Article[];
+  model_used: string;
+  created_at: string;
 }
 
 export interface CategoryPreference {
@@ -174,16 +224,24 @@ export const dbService = {
 
   async getArticlesPaginated(
     category?: string,
+    publisher?: string,
     search?: string,
+    sortBy?: string,
     limit?: number,
     offset?: number
   ): Promise<Article[]> {
     return call<Article[]>("db_get_articles_paginated", {
       category: category ?? null,
+      publisher: publisher ?? null,
       search: search ?? null,
+      sortBy: sortBy ?? null,
       limit: limit ?? null,
       offset: offset ?? null,
     });
+  },
+
+  async getPublishers(): Promise<string[]> {
+    return call<string[]>("db_get_publishers");
   },
 
   async pruneOldArticles(days?: number): Promise<number> {
@@ -218,5 +276,83 @@ export const dbService = {
   // ── Telemetry / Diagnostics ───────────────────────────────────────────────
   async getStats(): Promise<DbStats> {
     return call<DbStats>("db_get_stats");
+  },
+
+  // ── AI Intelligence ───────────────────────────────────────────────────────
+  async getAiConfig(): Promise<AiConfigInfo> {
+    return call<AiConfigInfo>("ai_get_config");
+  },
+
+  async saveAiConfig(config: {
+    apiKey?: string;
+    model?: string;
+    explanationMode?: string;
+    briefingLength?: string;
+  }): Promise<void> {
+    return call<void>("ai_save_config", {
+      apiKey: config.apiKey ?? null,
+      model: config.model ?? null,
+      explanationMode: config.explanationMode ?? null,
+      briefingLength: config.briefingLength ?? null,
+    });
+  },
+
+  async testAiConnection(): Promise<string> {
+    return call<string>("ai_test_connection");
+  },
+
+  async processNewsIntelligence(
+    category?: string,
+    limit?: number,
+    forceRefresh?: boolean
+  ): Promise<StoryClusterWithArticles[]> {
+    return call<StoryClusterWithArticles[]>("ai_process_news", {
+      category: category ?? null,
+      limit: limit ?? null,
+      forceRefresh: forceRefresh ?? null,
+    });
+  },
+
+  async getAiStories(
+    category?: string,
+    search?: string,
+    sortBy?: string,
+    limit?: number
+  ): Promise<StoryClusterWithArticles[]> {
+    return call<StoryClusterWithArticles[]>("ai_get_stories", {
+      category: category ?? null,
+      search: search ?? null,
+      sortBy: sortBy ?? null,
+      limit: limit ?? null,
+    });
+  },
+
+  async generateBriefing(
+    briefingType: string,
+    briefingLength: string
+  ): Promise<Briefing> {
+    return call<Briefing>("ai_generate_briefing", {
+      briefingType,
+      briefingLength,
+    });
+  },
+
+  async getBriefings(
+    briefingType?: string,
+    search?: string,
+    limit?: number
+  ): Promise<Briefing[]> {
+    return call<Briefing[]>("ai_get_briefings", {
+      briefingType: briefingType ?? null,
+      search: search ?? null,
+      limit: limit ?? null,
+    });
+  },
+
+  async askQuestion(question: string, storyContext?: string): Promise<AiAnswer> {
+    return call<AiAnswer>("ai_ask_question", {
+      question,
+      storyContext: storyContext ?? null,
+    });
   },
 };

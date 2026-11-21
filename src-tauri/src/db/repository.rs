@@ -68,6 +68,10 @@ pub struct Briefing {
     pub category: String,
     pub created_at: String,
     pub last_updated_at: String,
+    pub briefing_type: Option<String>,
+    pub briefing_length: Option<String>,
+    pub model_used: Option<String>,
+    pub articles_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +79,53 @@ pub struct NewBriefing {
     pub title: String,
     pub summary: String,
     pub category: String,
+    pub briefing_type: Option<String>,
+    pub briefing_length: Option<String>,
+    pub model_used: Option<String>,
+    pub articles_count: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoryCluster {
+    pub id: i64,
+    pub cluster_hash: String,
+    pub category: String,
+    pub title: String,
+    pub what_happened: String,
+    pub why_it_happened: String,
+    pub why_it_matters: String,
+    pub what_happens_next: String,
+    pub what_is_uncertain: String,
+    pub simple_summary: Option<String>,
+    pub detailed_summary: Option<String>,
+    pub decision_summary: Option<String>,
+    pub importance_score: i64,
+    pub model_used: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoryClusterWithArticles {
+    pub cluster: StoryCluster,
+    pub articles: Vec<Article>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewStoryCluster {
+    pub cluster_hash: String,
+    pub category: String,
+    pub title: String,
+    pub what_happened: String,
+    pub why_it_happened: String,
+    pub why_it_matters: String,
+    pub what_happens_next: String,
+    pub what_is_uncertain: String,
+    pub simple_summary: Option<String>,
+    pub detailed_summary: Option<String>,
+    pub decision_summary: Option<String>,
+    pub importance_score: i64,
+    pub model_used: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -363,68 +414,93 @@ pub fn insert_articles(conn: &Connection, articles: &[NewArticle]) -> Result<u64
     }
 }
 
+/// Return a distinct list of all publishers in the articles database.
+pub fn get_publishers(conn: &Connection) -> Result<Vec<String>, String> {
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT publisher FROM articles WHERE publisher IS NOT NULL AND TRIM(publisher) != '' ORDER BY publisher ASC")
+        .map_err(|e| format!("Failed to prepare get_publishers: {e}"))?;
+
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("Failed to query publishers: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect publishers: {e}"))?;
+
+    Ok(rows)
+}
+
 /// Return recent articles, optionally filtered by category, with a row limit.
 pub fn get_articles(
     conn: &Connection,
     category: Option<&str>,
     limit: u32,
 ) -> Result<Vec<Article>, String> {
-    get_articles_paginated(conn, category, None, limit, 0)
+    get_articles_paginated(conn, category, None, None, None, limit, 0)
 }
 
-/// Return articles with optional category filter, text search query, and pagination.
+/// Return articles with optional category filter, publisher filter, text search query, sorting, and pagination.
 pub fn get_articles_paginated(
     conn: &Connection,
     category: Option<&str>,
+    publisher: Option<&str>,
     search: Option<&str>,
+    sort_by: Option<&str>,
     limit: u32,
     offset: u32,
 ) -> Result<Vec<Article>, String> {
     let limit = limit.clamp(1, 100);
 
-    let (sql, params_vec): (String, Vec<rusqlite::types::Value>) = match (category, search) {
-        (Some(cat), Some(s)) if !cat.eq_ignore_ascii_case("all") && !s.trim().is_empty() => {
-            let pattern = format!("%{}%", s.trim());
-            (
-                "SELECT id, title, description, source_id, article_url, category, published_at, fetched_at, publisher, guid, content_hash
-                 FROM articles
-                 WHERE category = ?1 AND (title LIKE ?2 OR description LIKE ?2)
-                 ORDER BY COALESCE(published_at, fetched_at) DESC
-                 LIMIT ?3 OFFSET ?4".to_string(),
-                vec![cat.to_string().into(), pattern.into(), limit.into(), offset.into()],
-            )
+    let mut conditions = Vec::new();
+    let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
+
+    if let Some(cat) = category {
+        if !cat.eq_ignore_ascii_case("all") && !cat.trim().is_empty() {
+            conditions.push("category = ?");
+            params_vec.push(cat.trim().to_string().into());
         }
-        (Some(cat), _) if !cat.eq_ignore_ascii_case("all") => {
-            (
-                "SELECT id, title, description, source_id, article_url, category, published_at, fetched_at, publisher, guid, content_hash
-                 FROM articles
-                 WHERE category = ?1
-                 ORDER BY COALESCE(published_at, fetched_at) DESC
-                 LIMIT ?2 OFFSET ?3".to_string(),
-                vec![cat.to_string().into(), limit.into(), offset.into()],
-            )
+    }
+
+    if let Some(pub_name) = publisher {
+        if !pub_name.eq_ignore_ascii_case("all") && !pub_name.trim().is_empty() {
+            conditions.push("publisher = ?");
+            params_vec.push(pub_name.trim().to_string().into());
         }
-        (_, Some(s)) if !s.trim().is_empty() => {
-            let pattern = format!("%{}%", s.trim());
-            (
-                "SELECT id, title, description, source_id, article_url, category, published_at, fetched_at, publisher, guid, content_hash
-                 FROM articles
-                 WHERE title LIKE ?1 OR description LIKE ?1
-                 ORDER BY COALESCE(published_at, fetched_at) DESC
-                 LIMIT ?2 OFFSET ?3".to_string(),
-                vec![pattern.into(), limit.into(), offset.into()],
-            )
+    }
+
+    if let Some(s) = search {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            conditions.push("(title LIKE ? OR description LIKE ?)");
+            let pattern = format!("%{trimmed}%");
+            params_vec.push(pattern.clone().into());
+            params_vec.push(pattern.into());
         }
-        _ => {
-            (
-                "SELECT id, title, description, source_id, article_url, category, published_at, fetched_at, publisher, guid, content_hash
-                 FROM articles
-                 ORDER BY COALESCE(published_at, fetched_at) DESC
-                 LIMIT ?1 OFFSET ?2".to_string(),
-                vec![limit.into(), offset.into()],
-            )
-        }
+    }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
     };
+
+    let order_clause = match sort_by {
+        Some("importance") => "ORDER BY CASE 
+            WHEN title LIKE '%breaking%' OR title LIKE '%alert%' OR title LIKE '%crisis%' THEN 1
+            WHEN publisher IN ('Reuters World', 'BBC News', 'Associated Press', 'Bloomberg') THEN 2
+            ELSE 3 END ASC, COALESCE(published_at, fetched_at) DESC",
+        _ => "ORDER BY COALESCE(published_at, fetched_at) DESC",
+    };
+
+    let sql = format!(
+        "SELECT id, title, description, source_id, article_url, category, published_at, fetched_at, publisher, guid, content_hash
+         FROM articles
+         {where_clause}
+         {order_clause}
+         LIMIT ? OFFSET ?"
+    );
+
+    params_vec.push(limit.into());
+    params_vec.push(offset.into());
 
     let mut stmt = conn
         .prepare(&sql)
@@ -476,10 +552,18 @@ pub fn prune_old_articles(conn: &Connection, days: u32) -> Result<u64, String> {
 /// update its summary; otherwise insert a new row.
 pub fn upsert_briefing(conn: &Connection, briefing: &NewBriefing) -> Result<i64, String> {
     conn.execute(
-        "INSERT INTO briefings (title, summary, category)
-         VALUES (?1, ?2, ?3)
+        "INSERT INTO briefings (title, summary, category, briefing_type, briefing_length, model_used, articles_count)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT DO NOTHING",
-        params![briefing.title, briefing.summary, briefing.category],
+        params![
+            briefing.title,
+            briefing.summary,
+            briefing.category,
+            briefing.briefing_type.as_deref().unwrap_or("general"),
+            briefing.briefing_length.as_deref().unwrap_or("standard"),
+            briefing.model_used.as_deref().unwrap_or("gpt-4o-mini"),
+            briefing.articles_count.unwrap_or(0),
+        ],
     )
     .map_err(|e| format!("Failed to insert briefing: {e}"))?;
 
@@ -500,11 +584,31 @@ pub fn upsert_briefing(conn: &Connection, briefing: &NewBriefing) -> Result<i64,
     Ok(id)
 }
 
+/// Insert a new standalone briefing record.
+pub fn insert_briefing(conn: &Connection, briefing: &NewBriefing) -> Result<i64, String> {
+    conn.execute(
+        "INSERT INTO briefings (title, summary, category, briefing_type, briefing_length, model_used, articles_count, created_at, last_updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+        params![
+            briefing.title,
+            briefing.summary,
+            briefing.category,
+            briefing.briefing_type.as_deref().unwrap_or("general"),
+            briefing.briefing_length.as_deref().unwrap_or("standard"),
+            briefing.model_used.as_deref().unwrap_or("gpt-4o-mini"),
+            briefing.articles_count.unwrap_or(0),
+        ],
+    )
+    .map_err(|e| format!("Failed to insert briefing: {e}"))?;
+
+    Ok(conn.last_insert_rowid())
+}
+
 /// Return the latest briefing for each category.
 pub fn get_latest_briefings(conn: &Connection) -> Result<Vec<Briefing>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, title, summary, category, created_at, last_updated_at
+            "SELECT id, title, summary, category, created_at, last_updated_at, briefing_type, briefing_length, model_used, articles_count
              FROM briefings
              WHERE id IN (
                  SELECT MAX(id) FROM briefings GROUP BY category
@@ -522,6 +626,10 @@ pub fn get_latest_briefings(conn: &Connection) -> Result<Vec<Briefing>, String> 
                 category: row.get(3)?,
                 created_at: row.get(4)?,
                 last_updated_at: row.get(5)?,
+                briefing_type: row.get(6).ok(),
+                briefing_length: row.get(7).ok(),
+                model_used: row.get(8).ok(),
+                articles_count: row.get(9).ok(),
             })
         })
         .map_err(|e| format!("Failed to query briefings: {e}"))?
@@ -531,7 +639,7 @@ pub fn get_latest_briefings(conn: &Connection) -> Result<Vec<Briefing>, String> 
     Ok(rows)
 }
 
-/// Return briefings for a specific category, newest first.
+/// Return briefings for a specific category or type, newest first.
 pub fn get_briefings_by_category(
     conn: &Connection,
     category: &str,
@@ -541,7 +649,7 @@ pub fn get_briefings_by_category(
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, title, summary, category, created_at, last_updated_at
+            "SELECT id, title, summary, category, created_at, last_updated_at, briefing_type, briefing_length, model_used, articles_count
              FROM briefings WHERE category = ?1
              ORDER BY created_at DESC LIMIT ?2",
         )
@@ -556,11 +664,337 @@ pub fn get_briefings_by_category(
                 category: row.get(3)?,
                 created_at: row.get(4)?,
                 last_updated_at: row.get(5)?,
+                briefing_type: row.get(6).ok(),
+                briefing_length: row.get(7).ok(),
+                model_used: row.get(8).ok(),
+                articles_count: row.get(9).ok(),
             })
         })
         .map_err(|e| format!("Failed to query briefings by category: {e}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to collect briefings: {e}"))?;
+
+    Ok(rows)
+}
+
+fn map_briefing_row(row: &rusqlite::Row) -> rusqlite::Result<Briefing> {
+    Ok(Briefing {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        summary: row.get(2)?,
+        category: row.get(3)?,
+        created_at: row.get(4)?,
+        last_updated_at: row.get(5)?,
+        briefing_type: row.get(6).ok(),
+        briefing_length: row.get(7).ok(),
+        model_used: row.get(8).ok(),
+        articles_count: row.get(9).ok(),
+    })
+}
+
+/// Return recent briefings filtered optionally by type and search query.
+pub fn get_briefings_by_type(
+    conn: &Connection,
+    briefing_type: Option<&str>,
+    search: Option<&str>,
+    limit: u32,
+) -> Result<Vec<Briefing>, String> {
+    let limit = limit.clamp(1, 100);
+
+    let mut conditions = Vec::new();
+    let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
+
+    if let Some(bt) = briefing_type {
+        if !bt.eq_ignore_ascii_case("all") && !bt.trim().is_empty() {
+            conditions.push("briefing_type = ?");
+            params_vec.push(bt.trim().to_string().into());
+        }
+    }
+
+    if let Some(s) = search {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            conditions.push("(title LIKE ? OR summary LIKE ?)");
+            let pattern = format!("%{trimmed}%");
+            params_vec.push(pattern.clone().into());
+            params_vec.push(pattern.into());
+        }
+    }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    };
+
+    let sql = format!(
+        "SELECT id, title, summary, category, created_at, last_updated_at, briefing_type, briefing_length, model_used, articles_count
+         FROM briefings
+         {where_clause}
+         ORDER BY created_at DESC
+         LIMIT ?"
+    );
+
+    params_vec.push(limit.into());
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("Failed to prepare get_briefings_by_type: {e}"))?;
+
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(params_vec), map_briefing_row)
+        .map_err(|e| format!("Query error: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect briefings by type: {e}"))?;
+
+    Ok(rows)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Story Clusters & AI Intelligence
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn map_cluster_row(row: &rusqlite::Row) -> rusqlite::Result<StoryCluster> {
+    Ok(StoryCluster {
+        id: row.get(0)?,
+        cluster_hash: row.get(1)?,
+        category: row.get(2)?,
+        title: row.get(3)?,
+        what_happened: row.get(4)?,
+        why_it_happened: row.get(5)?,
+        why_it_matters: row.get(6)?,
+        what_happens_next: row.get(7)?,
+        what_is_uncertain: row.get(8)?,
+        simple_summary: row.get(9)?,
+        detailed_summary: row.get(10)?,
+        decision_summary: row.get(11)?,
+        importance_score: row.get(12)?,
+        model_used: row.get(13)?,
+        created_at: row.get(14)?,
+        updated_at: row.get(15)?,
+    })
+}
+
+/// Find an existing story cluster by its unique cluster hash to avoid re-processing.
+pub fn find_story_cluster_by_hash(
+    conn: &Connection,
+    cluster_hash: &str,
+) -> Result<Option<StoryCluster>, String> {
+    let res = conn.query_row(
+        "SELECT id, cluster_hash, category, title, what_happened, why_it_happened, why_it_matters,
+                what_happens_next, what_is_uncertain, simple_summary, detailed_summary, decision_summary,
+                importance_score, model_used, created_at, updated_at
+         FROM story_clusters WHERE cluster_hash = ?1 LIMIT 1",
+        params![cluster_hash],
+        map_cluster_row,
+    );
+
+    match res {
+        Ok(c) => Ok(Some(c)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(format!("Failed to find story cluster: {e}")),
+    }
+}
+
+/// Insert a new story cluster and associate it with its source articles.
+pub fn insert_story_cluster(
+    conn: &Connection,
+    cluster: &NewStoryCluster,
+    article_ids: &[i64],
+) -> Result<i64, String> {
+    conn.execute(
+        "INSERT INTO story_clusters (
+            cluster_hash, category, title, what_happened, why_it_happened, why_it_matters,
+            what_happens_next, what_is_uncertain, simple_summary, detailed_summary, decision_summary,
+            importance_score, model_used
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            cluster.cluster_hash,
+            cluster.category,
+            cluster.title,
+            cluster.what_happened,
+            cluster.why_it_happened,
+            cluster.why_it_matters,
+            cluster.what_happens_next,
+            cluster.what_is_uncertain,
+            cluster.simple_summary,
+            cluster.detailed_summary,
+            cluster.decision_summary,
+            cluster.importance_score,
+            cluster.model_used,
+        ],
+    )
+    .map_err(|e| format!("Failed to insert story cluster: {e}"))?;
+
+    let cluster_id = conn.last_insert_rowid();
+
+    for &article_id in article_ids {
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO cluster_articles (cluster_id, article_id) VALUES (?1, ?2)",
+            params![cluster_id, article_id],
+        );
+    }
+
+    Ok(cluster_id)
+}
+
+/// Return story clusters with their supporting articles attached, with category, search, and sort options.
+pub fn get_story_clusters_with_articles(
+    conn: &Connection,
+    category: Option<&str>,
+    search: Option<&str>,
+    sort_by: Option<&str>,
+    limit: u32,
+) -> Result<Vec<StoryClusterWithArticles>, String> {
+    let limit = limit.clamp(1, 100);
+
+    let mut conditions = Vec::new();
+    let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
+
+    if let Some(cat) = category {
+        if !cat.eq_ignore_ascii_case("all") && !cat.trim().is_empty() {
+            conditions.push("category = ?");
+            params_vec.push(cat.trim().to_string().into());
+        }
+    }
+
+    if let Some(s) = search {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            conditions.push("(title LIKE ? OR what_happened LIKE ? OR simple_summary LIKE ?)");
+            let pattern = format!("%{trimmed}%");
+            params_vec.push(pattern.clone().into());
+            params_vec.push(pattern.clone().into());
+            params_vec.push(pattern.into());
+        }
+    }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", conditions.join(" AND "))
+    };
+
+    let order_clause = match sort_by {
+        Some("latest") => "ORDER BY created_at DESC, importance_score DESC",
+        _ => "ORDER BY importance_score DESC, created_at DESC",
+    };
+
+    let sql = format!(
+        "SELECT id, cluster_hash, category, title, what_happened, why_it_happened, why_it_matters,
+                what_happens_next, what_is_uncertain, simple_summary, detailed_summary, decision_summary,
+                importance_score, model_used, created_at, updated_at
+         FROM story_clusters
+         {where_clause}
+         {order_clause}
+         LIMIT ?"
+    );
+
+    params_vec.push(limit.into());
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("Prepare error: {e}"))?;
+
+    let clusters = stmt
+        .query_map(rusqlite::params_from_iter(params_vec), map_cluster_row)
+        .map_err(|e| format!("Query error: {e}"))?
+        .collect::<Result<Vec<StoryCluster>, _>>()
+        .map_err(|e| format!("Collect error: {e}"))?;
+
+    let mut result = Vec::new();
+    for cluster in clusters {
+        let mut art_stmt = conn.prepare(
+            "SELECT a.id, a.title, a.description, a.source_id, a.article_url, a.category,
+                    a.published_at, a.fetched_at, a.publisher, a.guid, a.content_hash
+             FROM articles a
+             INNER JOIN cluster_articles ca ON ca.article_id = a.id
+             WHERE ca.cluster_id = ?1
+             ORDER BY a.published_at DESC LIMIT 5",
+        ).map_err(|e| format!("Failed to prepare cluster articles statement: {e}"))?;
+
+        let articles = art_stmt
+            .query_map(params![cluster.id], |row| {
+                Ok(Article {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    description: row.get(2)?,
+                    source_id: row.get(3)?,
+                    article_url: row.get(4)?,
+                    category: row.get(5)?,
+                    published_at: row.get(6)?,
+                    fetched_at: row.get(7)?,
+                    publisher: row.get(8)?,
+                    guid: row.get(9)?,
+                    content_hash: row.get(10)?,
+                })
+            })
+            .map_err(|e| format!("Query cluster articles error: {e}"))?
+            .collect::<Result<Vec<Article>, _>>()
+            .map_err(|e| format!("Failed to collect cluster articles: {e}"))?;
+
+        result.push(StoryClusterWithArticles { cluster, articles });
+    }
+
+    Ok(result)
+}
+
+/// Search articles based on keywords for conversational question answering (RAG).
+pub fn search_articles_for_question(
+    conn: &Connection,
+    keywords: &[String],
+    limit: u32,
+) -> Result<Vec<Article>, String> {
+    let limit = limit.clamp(1, 30);
+    if keywords.is_empty() {
+        return get_articles(conn, None, limit);
+    }
+
+    let mut conditions = Vec::new();
+    let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    for kw in keywords {
+        let pattern = format!("%{kw}%");
+        conditions.push("(a.title LIKE ? OR a.description LIKE ?)");
+        params_vec.push(Box::new(pattern.clone()));
+        params_vec.push(Box::new(pattern));
+    }
+
+    let where_clause = conditions.join(" OR ");
+    let query_str = format!(
+        "SELECT a.id, a.title, a.description, a.source_id, a.article_url, a.category,
+                a.published_at, a.fetched_at, a.publisher, a.guid, a.content_hash
+         FROM articles a
+         WHERE {where_clause}
+         ORDER BY a.published_at DESC, a.fetched_at DESC
+         LIMIT {limit}"
+    );
+
+    let mut stmt = conn
+        .prepare(&query_str)
+        .map_err(|e| format!("Failed to prepare search_articles_for_question: {e}"))?;
+
+    let param_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|b| b.as_ref()).collect();
+
+    let rows = stmt
+        .query_map(param_refs.as_slice(), |row| {
+            Ok(Article {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                description: row.get(2)?,
+                source_id: row.get(3)?,
+                article_url: row.get(4)?,
+                category: row.get(5)?,
+                published_at: row.get(6)?,
+                fetched_at: row.get(7)?,
+                publisher: row.get(8)?,
+                guid: row.get(9)?,
+                content_hash: row.get(10)?,
+            })
+        })
+        .map_err(|e| format!("Failed to execute search_articles_for_question: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect searched articles: {e}"))?;
 
     Ok(rows)
 }
