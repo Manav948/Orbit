@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Orbit",
+  "productName": "Nexora",
   "version": "0.1.0",
   "identifier": "com.nexora.app",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Orbit",
+        "title": "Nexora",
         "width": 360,
         "height": 48,
         "center": false,

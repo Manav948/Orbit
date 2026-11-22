@@ -23,6 +23,12 @@ import {
   AlertTriangle,
   MessageSquarePlus,
   ChevronRight,
+  Plus,
+  Trash2,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Square,
 } from "lucide-react";
 import { OrbitLogo } from "../icons";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,8 +45,13 @@ import {
   type StoryClusterWithArticles,
   type Briefing,
   type AiAnswer,
+  type Conversation,
+  type ConversationMessage,
+  type StockQuote,
 } from "../../services/dbService";
 import { isTauriEnvironment } from "../../services/tauriBridge";
+import { voiceService } from "../../services/voiceService";
+import { ttsService } from "../../services/ttsService";
 import type { UserPreferences } from "../../types/desktop";
 import type { AccentThemeConfig } from "../../utils/accentThemes";
 
@@ -52,7 +63,7 @@ interface ExpandedIslandProps {
   accent: AccentThemeConfig;
 }
 
-type IslandViewMode = "intelligence" | "briefings" | "news";
+type IslandViewMode = "intelligence" | "assistant" | "briefings" | "finance" | "news";
 type NewsFilterCategory = "all" | "world" | "business" | "finance" | "technology" | "ai" | "science" | "cybersecurity";
 type ExplanationMode = "simple" | "detailed" | "decision";
 type BriefingType = "morning" | "latest" | "overnight" | "technology" | "finance" | "world";
@@ -61,8 +72,6 @@ type SortMode = "latest" | "importance";
 type DateFilter = "all" | "today" | "24h" | "7d";
 
 const PAGE_SIZE = 20;
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -108,8 +117,6 @@ function getImportanceBadge(title: string, publisher: string | null | undefined)
   return { label: "Dispatch", cls: "bg-white/[0.04] text-neutral-400 border-white/[0.08]" };
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
-
 export function ExpandedIsland({
   onCollapse,
   onOpenSettings,
@@ -135,7 +142,6 @@ export function ExpandedIsland({
   const [publisherFilter, setPublisherFilter] = useState<string>("all");
   const [sortMode, setSortMode] = useState<SortMode>("latest");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
-  const [showFilterPanel, setShowFilterPanel] = useState(false);
 
   // ── AI Story Clusters ─────────────────────────────────────────────────────
   const [stories, setStories] = useState<StoryClusterWithArticles[]>([]);
@@ -152,6 +158,22 @@ export function ExpandedIsland({
   const [isGeneratingBriefing, setIsGeneratingBriefing] = useState(false);
   const [activeBriefing, setActiveBriefing] = useState<Briefing | null>(null);
 
+  // ── Conversational Assistant State ────────────────────────────────────────
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [assistantInput, setAssistantInput] = useState("");
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [assistantMicActive, setAssistantMicActive] = useState(false);
+  const [playingMessageId, setPlayingMessageId] = useState<number | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  // ── Finance Intelligence State ────────────────────────────────────────────
+  const [quotes, setQuotes] = useState<StockQuote[]>([]);
+  const [isLoadingQuotes, setIsLoadingQuotes] = useState(false);
+  const [financeError, setFinanceError] = useState<string | null>(null);
+  const [quickAddSymbol, setQuickAddSymbol] = useState("");
+
   // ── Raw Articles ──────────────────────────────────────────────────────────
   const [articles, setArticles] = useState<Article[]>([]);
   const [isLoadingArticles, setIsLoadingArticles] = useState(true);
@@ -164,8 +186,6 @@ export function ExpandedIsland({
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
-
-  // ── Stats ─────────────────────────────────────────────────────────────────
   const [totalArticleCount, setTotalArticleCount] = useState(0);
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -177,7 +197,7 @@ export function ExpandedIsland({
       const list = await dbService.getPublishers();
       setPublishers(list);
     } catch {
-      // non-critical, fail silently
+      // non-critical
     }
   }, []);
 
@@ -211,8 +231,7 @@ export function ExpandedIsland({
 
   const loadArticles = useCallback(
     async (reset = true) => {
-      const isReset = reset;
-      if (isReset) {
+      if (reset) {
         setIsLoadingArticles(true);
         setArticlesError(null);
         setArticleOffset(0);
@@ -223,13 +242,12 @@ export function ExpandedIsland({
         const cat = newsFilter === "all" ? undefined : newsFilter;
         const pub = publisherFilter === "all" ? undefined : publisherFilter;
         const sq = searchQuery.trim() || undefined;
-        const offset = isReset ? 0 : articleOffset;
+        const offset = reset ? 0 : articleOffset;
         const list = await dbService.getArticlesPaginated(cat, pub, sq, sortMode, PAGE_SIZE + 1, offset);
         const hasMore = list.length > PAGE_SIZE;
         const page = hasMore ? list.slice(0, PAGE_SIZE) : list;
-        // Client-side date filtering (no backend change needed)
         const filtered = page.filter((a) => isWithinDateFilter(a.published_at || a.fetched_at, dateFilter));
-        if (isReset) {
+        if (reset) {
           setArticles(filtered);
           setTotalArticleCount(filtered.length);
         } else {
@@ -261,12 +279,39 @@ export function ExpandedIsland({
     }
   }, [activeBriefing]);
 
+  const loadConversations = useCallback(async () => {
+    try {
+      const list = await dbService.getConversations(20);
+      setConversations(list);
+      if (list.length > 0 && !activeConversationId) {
+        setActiveConversationId(list[0].id);
+        const msgs = await dbService.getConversationMessages(list[0].id);
+        setMessages(msgs);
+      }
+    } catch (err) {
+      console.warn("Failed to load conversations:", err);
+    }
+  }, [activeConversationId]);
+
+  const loadFinanceQuotes = useCallback(async () => {
+    setIsLoadingQuotes(true);
+    setFinanceError(null);
+    try {
+      const data = await dbService.getWatchlistQuotes();
+      setQuotes(data);
+    } catch (err) {
+      setFinanceError(err instanceof Error ? err.message : "Failed to fetch market quotes.");
+    } finally {
+      setIsLoadingQuotes(false);
+    }
+  }, []);
+
   // ── On mount: load publishers
   useEffect(() => {
     loadPublishers();
   }, [loadPublishers]);
 
-  // ── Reload when active view or key filters change
+  // ── Reload when active view changes
   useEffect(() => {
     if (activeView === "intelligence") {
       loadStories();
@@ -274,12 +319,22 @@ export function ExpandedIsland({
       loadArticles(true);
     } else if (activeView === "briefings") {
       loadBriefings();
+    } else if (activeView === "assistant") {
+      loadConversations();
+    } else if (activeView === "finance") {
+      loadFinanceQuotes();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeView, newsFilter, publisherFilter, sortMode, dateFilter]);
+  }, [activeView, loadStories, loadArticles, loadBriefings, loadConversations, loadFinanceQuotes]);
+
+  // Scroll to bottom of assistant messages
+  useEffect(() => {
+    if (activeView === "assistant") {
+      chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, activeView]);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Event Handlers
+  // Handlers
   // ─────────────────────────────────────────────────────────────────────────
 
   const handleManualSync = async () => {
@@ -330,7 +385,7 @@ export function ExpandedIsland({
       setSyncStatus(`Generated ${briefing.title}`);
       setTimeout(() => setSyncStatus(null), 4000);
     } catch (err) {
-      setBriefingsError(err instanceof Error ? err.message : "Failed to compile briefing. Check API key in Settings > AI Configuration.");
+      setBriefingsError(err instanceof Error ? err.message : "Failed to compile briefing. Check AI settings.");
     } finally {
       setIsGeneratingBriefing(false);
     }
@@ -352,47 +407,177 @@ export function ExpandedIsland({
       const answer = await dbService.askQuestion(query);
       setAiAnswer(answer);
       setAnswerViewMode("direct");
+      if (ttsService.isAutoSpeakEnabled()) {
+        ttsService.speak(answer.answer);
+      }
     } catch (err) {
-      setSyncError(err instanceof Error ? err.message : "Ask Nexora failed. Ensure AI is configured in Settings.");
+      setSyncError(err instanceof Error ? err.message : "Ask Nexora failed.");
     } finally {
       setIsAskingAi(false);
     }
   };
 
-  const handleAskAboutStory = (cluster: StoryClusterWithArticles["cluster"]) => {
-    const ctx = `${cluster.what_happened}\n\n${cluster.why_it_matters}`;
-    setSearchQuery(cluster.title);
-    setActiveView("intelligence");
-    setAiAnswer(null);
-    // Submit automatically
-    setIsAskingAi(true);
-    dbService
-      .askQuestion(cluster.title, ctx)
-      .then((answer) => {
-        setAiAnswer(answer);
-        setAnswerViewMode("direct");
-      })
-      .catch((err) => {
-        setSyncError(err instanceof Error ? err.message : "Ask Nexora failed.");
-      })
-      .finally(() => setIsAskingAi(false));
+  // ── Assistant Chat Handlers ───────────────────────────────────────────────
+  const handleSendAssistant = async (e: FormEvent) => {
+    e.preventDefault();
+    const text = assistantInput.trim();
+    if (!text || isSendingMessage) return;
+
+    setIsSendingMessage(true);
+    setAssistantInput("");
+
+    // Optimistically add user message to feed
+    const tempUserMsg: ConversationMessage = {
+      id: Date.now(),
+      conversation_id: activeConversationId || 0,
+      role: "user",
+      content: text,
+      created_at: "Just now",
+    };
+    setMessages((prev) => [...prev, tempUserMsg]);
+
+    try {
+      const reply = await dbService.sendAssistantMessage(text, activeConversationId || undefined);
+      setActiveConversationId(reply.conversation_id);
+
+      const assistantMsg: ConversationMessage = {
+        id: reply.message_id,
+        conversation_id: reply.conversation_id,
+        role: "assistant",
+        content: reply.content,
+        sources_json: reply.sources.length > 0 ? JSON.stringify(reply.sources) : undefined,
+        created_at: reply.created_at,
+      };
+
+      setMessages((prev) => [...prev, assistantMsg]);
+      await loadConversations();
+
+      if (ttsService.isAutoSpeakEnabled()) {
+        ttsService.speak(reply.content);
+      }
+    } catch (err) {
+      const errMsg: ConversationMessage = {
+        id: Date.now() + 1,
+        conversation_id: activeConversationId || 0,
+        role: "assistant",
+        content: `Error: ${err instanceof Error ? err.message : "Assistant response failed. Check Settings > Multi-Provider AI."}`,
+        created_at: "Just now",
+      };
+      setMessages((prev) => [...prev, errMsg]);
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
+
+  const handleSelectConversation = async (id: number) => {
+    setActiveConversationId(id);
+    try {
+      const msgs = await dbService.getConversationMessages(id);
+      setMessages(msgs);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleNewConversation = () => {
+    setActiveConversationId(null);
+    setMessages([]);
+    setAssistantInput("");
+  };
+
+  const handleDeleteConversation = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await dbService.deleteConversation(id);
+      if (activeConversationId === id) {
+        handleNewConversation();
+      }
+      await loadConversations();
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleToggleTts = (text: string, msgId: number) => {
+    if (playingMessageId === msgId) {
+      ttsService.stop();
+      setPlayingMessageId(null);
+    } else {
+      setPlayingMessageId(msgId);
+      ttsService.speak(text, () => setPlayingMessageId(null));
+    }
+  };
+
+  // ── Voice Input Handlers ──────────────────────────────────────────────────
+  const handleMicSearch = () => {
+    if (micActive) {
+      voiceService.stopListening();
+      setMicActive(false);
+    } else {
+      setMicActive(true);
+      const started = voiceService.startListening(
+        (transcript) => setSearchQuery(transcript),
+        (err) => {
+          setSyncError(err);
+          setMicActive(false);
+        },
+        () => setMicActive(false)
+      );
+      if (!started) setMicActive(false);
+    }
+  };
+
+  const handleMicAssistant = () => {
+    if (assistantMicActive) {
+      voiceService.stopListening();
+      setAssistantMicActive(false);
+    } else {
+      setAssistantMicActive(true);
+      const started = voiceService.startListening(
+        (transcript) => setAssistantInput(transcript),
+        (err) => {
+          setSyncError(err);
+          setAssistantMicActive(false);
+        },
+        () => setAssistantMicActive(false)
+      );
+      if (!started) setAssistantMicActive(false);
+    }
+  };
+
+  // ── Finance Handlers ──────────────────────────────────────────────────────
+  const handleAddWatchlistTicker = async (e: FormEvent) => {
+    e.preventDefault();
+    const sym = quickAddSymbol.trim().toUpperCase();
+    if (!sym) return;
+    try {
+      const cfg = await dbService.getFinanceConfig();
+      if (!cfg.watchlist.includes(sym)) {
+        const updated = [...cfg.watchlist, sym];
+        await dbService.saveWatchlist(updated);
+        setQuickAddSymbol("");
+        await loadFinanceQuotes();
+      }
+    } catch {
+      // ignore
+    }
   };
 
   const handleOpenArticle = async (url: string) => {
     try {
+      const trimmed = url.trim();
+      if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+        console.warn("Blocked non-HTTP link navigation for security:", url);
+        return;
+      }
       if (isTauriEnvironment()) {
-        await openUrl(url);
+        await openUrl(trimmed);
       } else {
-        window.open(url, "_blank", "noopener,noreferrer");
+        window.open(trimmed, "_blank", "noopener,noreferrer");
       }
     } catch {
-      // fail silently
+      // ignore
     }
-  };
-
-  const handleMicClick = () => {
-    setMicActive(true);
-    setTimeout(() => setMicActive(false), 1400);
   };
 
   const handleLoadMore = () => {
@@ -400,10 +585,6 @@ export function ExpandedIsland({
       loadArticles(false);
     }
   };
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Helpers
-  // ─────────────────────────────────────────────────────────────────────────
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return "Recent";
@@ -436,9 +617,30 @@ export function ExpandedIsland({
     (sortMode !== "latest" ? 1 : 0) +
     (dateFilter !== "all" ? 1 : 0);
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────────────────
+  // SVG mini sparkline renderer
+  const renderSparkline = (points: number[], isPositive: boolean) => {
+    if (!points || points.length < 2) return null;
+    const min = Math.min(...points);
+    const max = Math.max(...points);
+    const range = max - min || 1;
+    const width = 64;
+    const height = 24;
+
+    const coords = points.map((p, i) => {
+      const x = (i / (points.length - 1)) * width;
+      const y = height - ((p - min) / range) * (height - 4) - 2;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+
+    const pathData = `M ${coords.join(" L ")}`;
+    const strokeColor = isPositive ? "#34d399" : "#f87171";
+
+    return (
+      <svg width={width} height={height} className="shrink-0 overflow-visible">
+        <path d={pathData} fill="none" stroke={strokeColor} strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    );
+  };
 
   return (
     <Card
@@ -459,55 +661,39 @@ export function ExpandedIsland({
               <OrbitLogo className="w-3.5 h-3.5" />
             </div>
             <span className="font-semibold text-xs tracking-tight text-white">
-              Orbit Intelligence
+              Nexora
             </span>
           </div>
 
           <Separator orientation="vertical" className="h-3.5 bg-white/[0.1]" />
 
-          {/* Tri-View Switcher */}
+          {/* 5-Mode Switcher */}
           <div className="flex items-center space-x-0.5 bg-black/40 p-0.5 rounded-xl border border-white/[0.06]">
-            <Button
-              variant={activeView === "intelligence" ? "secondary" : "ghost"}
-              size="xs"
-              onClick={() => setActiveView("intelligence")}
-              className={`h-5 px-2 text-[10px] rounded-lg gap-1 ${
-                activeView === "intelligence"
-                  ? `${accent.bgSubtle} ${accent.textLight} border ${accent.borderSubtle} font-medium`
-                  : "text-neutral-400 hover:text-white"
-              }`}
-            >
-              <Sparkles className="w-2.5 h-2.5 text-amber-400" />
-              <span>AI Stories</span>
-            </Button>
-
-            <Button
-              variant={activeView === "briefings" ? "secondary" : "ghost"}
-              size="xs"
-              onClick={() => setActiveView("briefings")}
-              className={`h-5 px-2 text-[10px] rounded-lg gap-1 ${
-                activeView === "briefings"
-                  ? `${accent.bgSubtle} ${accent.textLight} border ${accent.borderSubtle} font-medium`
-                  : "text-neutral-400 hover:text-white"
-              }`}
-            >
-              <BookOpen className="w-2.5 h-2.5" />
-              <span>Briefings</span>
-            </Button>
-
-            <Button
-              variant={activeView === "news" ? "secondary" : "ghost"}
-              size="xs"
-              onClick={() => setActiveView("news")}
-              className={`h-5 px-2 text-[10px] rounded-lg gap-1 ${
-                activeView === "news"
-                  ? `${accent.bgSubtle} ${accent.textLight} border ${accent.borderSubtle} font-medium`
-                  : "text-neutral-400 hover:text-white"
-              }`}
-            >
-              <Radio className="w-2.5 h-2.5" />
-              <span>Dispatches</span>
-            </Button>
+            {[
+              { id: "intelligence" as IslandViewMode, label: "AI Stories", icon: <Sparkles className="w-2.5 h-2.5 text-amber-400" /> },
+              { id: "assistant" as IslandViewMode, label: "Assistant", icon: <Bot className="w-2.5 h-2.5 text-sky-400" /> },
+              { id: "briefings" as IslandViewMode, label: "Briefings", icon: <BookOpen className="w-2.5 h-2.5" /> },
+              { id: "finance" as IslandViewMode, label: "Markets", icon: <TrendingUp className="w-2.5 h-2.5 text-emerald-400" /> },
+              { id: "news" as IslandViewMode, label: "Dispatches", icon: <Radio className="w-2.5 h-2.5" /> },
+            ].map((tab) => {
+              const active = activeView === tab.id;
+              return (
+                <Button
+                  key={tab.id}
+                  variant={active ? "secondary" : "ghost"}
+                  size="xs"
+                  onClick={() => setActiveView(tab.id)}
+                  className={`h-5 px-2 text-[10px] rounded-lg gap-1 ${
+                    active
+                      ? `${accent.bgSubtle} ${accent.textLight} border ${accent.borderSubtle} font-medium`
+                      : "text-neutral-400 hover:text-white"
+                  }`}
+                >
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                </Button>
+              );
+            })}
           </div>
         </div>
 
@@ -520,7 +706,13 @@ export function ExpandedIsland({
                   variant="ghost"
                   size="icon-xs"
                   disabled={isSyncing || isProcessingAi}
-                  onClick={activeView === "intelligence" ? handleProcessAiIntelligence : handleManualSync}
+                  onClick={
+                    activeView === "intelligence"
+                      ? handleProcessAiIntelligence
+                      : activeView === "finance"
+                      ? loadFinanceQuotes
+                      : handleManualSync
+                  }
                   className={`rounded-lg transition-all ${
                     isSyncing || isProcessingAi
                       ? "text-amber-400"
@@ -529,10 +721,10 @@ export function ExpandedIsland({
                 />
               }
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing || isProcessingAi ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing || isProcessingAi || isLoadingQuotes ? "animate-spin" : ""}`} />
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {activeView === "intelligence" ? "Re-process AI Intelligence" : "Sync RSS Feeds"}
+              {activeView === "intelligence" ? "Re-process AI Intelligence" : activeView === "finance" ? "Refresh Quotes" : "Sync RSS Feeds"}
             </TooltipContent>
           </Tooltip>
 
@@ -587,146 +779,147 @@ export function ExpandedIsland({
       </div>
 
       {/* ── Main Content Area ──────────────────────────────────────────── */}
-      <CardContent className="px-5 py-3 flex-1 flex flex-col space-y-2.5 overflow-hidden min-h-0">
+      <CardContent className="px-5 py-3 flex-1 flex flex-col space-y-2 overflow-hidden min-h-0">
 
-        {/* ── Dashboard Greeting Header ──────────────────────────────── */}
-        <div className="flex items-center justify-between shrink-0">
-          <div className="space-y-0">
-            <p className="text-[9px] text-neutral-500 uppercase tracking-widest">{getTodayLabel()}</p>
-            <p className="text-xs font-semibold text-white leading-tight">
-              {getGreeting()} —{" "}
-              <span className={accent.textLight}>
-                {stories.length > 0
-                  ? `${stories.length} stories synthesized`
-                  : "Ready for your intelligence briefing"}
-              </span>
-            </p>
+        {/* Top greeting header (in non-assistant modes) */}
+        {activeView !== "assistant" && (
+          <div className="flex items-center justify-between shrink-0">
+            <div className="space-y-0">
+              <p className="text-[9px] text-neutral-500 uppercase tracking-widest">{getTodayLabel()}</p>
+              <p className="text-xs font-semibold text-white leading-tight">
+                {getGreeting()} —{" "}
+                <span className={accent.textLight}>
+                  {stories.length > 0 ? `${stories.length} stories synthesized` : "Ready for your intelligence stream"}
+                </span>
+              </p>
+            </div>
+            <div className="flex items-center space-x-2 text-[10px] text-neutral-500">
+              {articles.length > 0 && (
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                  {totalArticleCount} dispatches
+                </span>
+              )}
+              {quotes.length > 0 && (
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400 inline-block" />
+                  {quotes.length} assets
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex items-center space-x-2 text-[10px] text-neutral-500">
-            {articles.length > 0 && (
-              <span className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-                {totalArticleCount} dispatches
-              </span>
-            )}
-            {briefings.length > 0 && (
-              <span className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" />
-                {briefings.length} briefings
-              </span>
-            )}
-          </div>
-        </div>
+        )}
 
-        {/* ── Ask Nexora Interactive Input ───────────────────────────── */}
-        <form
-          onSubmit={handleQuestionSubmit}
-          className={`group relative flex items-center bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.14] rounded-2xl px-3.5 py-1.5 shadow-inner transition-all duration-200 shrink-0 ${accent.ring}`}
-        >
-          <Search className={`w-3.5 h-3.5 text-neutral-400 group-focus-within:${accent.text} mr-2.5 shrink-0 transition-colors`} />
+        {/* Global Search Bar (used in Stories, Briefings, News) */}
+        {activeView !== "assistant" && activeView !== "finance" && (
+          <form
+            onSubmit={handleQuestionSubmit}
+            className={`group relative flex items-center bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.14] rounded-2xl px-3.5 py-1.5 shadow-inner transition-all duration-200 shrink-0 ${accent.ring}`}
+          >
+            <Search className={`w-3.5 h-3.5 text-neutral-400 group-focus-within:${accent.text} mr-2.5 shrink-0 transition-colors`} />
 
-          <Input
-            ref={inputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
-            placeholder={
-              activeView === "news"
-                ? "Search raw dispatches by keyword or publisher..."
-                : "Ask Nexora (e.g. Why did NVIDIA decline? What happened in AI?)..."
-            }
-            className="h-7 border-0 bg-transparent px-0 py-0 text-xs font-medium text-white placeholder:text-neutral-500 focus-visible:ring-0 focus-visible:border-0 shadow-none"
-          />
+            <Input
+              ref={inputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+              placeholder={
+                activeView === "news"
+                  ? "Search raw dispatches by keyword or publisher..."
+                  : "Ask Nexora (e.g. Why did NVIDIA decline? What happened in AI?)..."
+              }
+              className="h-7 border-0 bg-transparent px-0 py-0 text-xs font-medium text-white placeholder:text-neutral-500 focus-visible:ring-0 focus-visible:border-0 shadow-none"
+            />
 
-          <div className="flex items-center space-x-1 shrink-0 ml-2">
-            {searchQuery && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => {
-                  setSearchQuery("");
-                  setAiAnswer(null);
-                  inputRef.current?.focus();
-                }}
-                className="text-neutral-400 hover:text-white rounded-md"
-                title="Clear input"
-              >
-                <X className="w-3 h-3" />
-              </Button>
-            )}
+            <div className="flex items-center space-x-1 shrink-0 ml-2">
+              {searchQuery && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setAiAnswer(null);
+                    inputRef.current?.focus();
+                  }}
+                  className="text-neutral-400 hover:text-white rounded-md"
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              )}
 
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={handleMicClick}
-                    className={`rounded-lg transition-all duration-200 ${
-                      micActive
-                        ? `${accent.bgActive} ${accent.textLight} ring-1 ${accent.borderSubtle} animate-pulse`
-                        : "text-neutral-400 hover:text-white hover:bg-white/[0.06]"
-                    }`}
-                  />
-                }
-              >
-                {micActive ? <Volume2 className={`w-3 h-3 ${accent.textLight}`} /> : <Mic className="w-3 h-3" />}
-              </TooltipTrigger>
-              <TooltipContent side="top">Voice Query</TooltipContent>
-            </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={handleMicSearch}
+                      className={`rounded-lg transition-all duration-200 ${
+                        micActive
+                          ? "bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/40 animate-pulse"
+                          : "text-neutral-400 hover:text-white hover:bg-white/[0.06]"
+                      }`}
+                    />
+                  }
+                >
+                  <Mic className="w-3 h-3" />
+                </TooltipTrigger>
+                <TooltipContent side="top">Voice Input</TooltipContent>
+              </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="submit"
-                    variant="ghost"
-                    size="icon-xs"
-                    disabled={!searchQuery.trim() || isAskingAi}
-                    className="text-neutral-400 hover:text-white hover:bg-white/[0.06] rounded-lg disabled:opacity-40"
-                  />
-                }
-              >
-                {isAskingAi ? (
-                  <RefreshCw className="w-3 h-3 animate-spin text-amber-400" />
-                ) : (
-                  <CornerDownLeft className="w-3 h-3" />
-                )}
-              </TooltipTrigger>
-              <TooltipContent side="top">Ask Nexora (Enter)</TooltipContent>
-            </Tooltip>
-          </div>
-        </form>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="submit"
+                      variant="ghost"
+                      size="icon-xs"
+                      disabled={!searchQuery.trim() || isAskingAi}
+                      className="text-neutral-400 hover:text-white hover:bg-white/[0.06] rounded-lg disabled:opacity-40"
+                    />
+                  }
+                >
+                  {isAskingAi ? (
+                    <RefreshCw className="w-3 h-3 animate-spin text-amber-400" />
+                  ) : (
+                    <CornerDownLeft className="w-3 h-3" />
+                  )}
+                </TooltipTrigger>
+                <TooltipContent side="top">Ask Nexora (Enter)</TooltipContent>
+              </Tooltip>
+            </div>
+          </form>
+        )}
 
-        {/* Sync / Notification Status Banner */}
+        {/* Sync / Status Banners */}
         {syncStatus && (
-          <div className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300 flex items-center justify-between animate-in fade-in duration-150 shrink-0">
+          <div className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] text-emerald-300 flex items-center justify-between shrink-0">
             <span className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               {syncStatus}
             </span>
-            <Button variant="ghost" size="xs" onClick={() => setSyncStatus(null)} className="h-4 px-1 text-[9px] text-emerald-400 hover:text-emerald-200">
+            <Button variant="ghost" size="xs" onClick={() => setSyncStatus(null)} className="h-4 px-1 text-[9px] text-emerald-400">
               ✕
             </Button>
           </div>
         )}
 
         {syncError && (
-          <div className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-300 flex items-center justify-between animate-in fade-in duration-150 shrink-0">
+          <div className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[11px] text-amber-300 flex items-center justify-between shrink-0">
             <span className="flex items-center gap-1.5">
               <Shield className="w-3 h-3 text-amber-400" />
               {syncError}
             </span>
-            <Button variant="ghost" size="xs" onClick={() => setSyncError(null)} className="h-4 px-1 text-[9px] text-amber-400 hover:text-amber-200">
+            <Button variant="ghost" size="xs" onClick={() => setSyncError(null)} className="h-4 px-1 text-[9px] text-amber-400">
               ✕
             </Button>
           </div>
         )}
 
-        {/* ── CONVERSATIONAL Q&A RESULT CARD ────────────────────────── */}
-        {aiAnswer && (
+        {/* ── CONVERSATIONAL Q&A RESULT (In Stories View) ──────────────── */}
+        {aiAnswer && activeView === "intelligence" && (
           <div className="p-3.5 rounded-2xl bg-[#0e1017] border border-amber-400/30 shadow-lg space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200 shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
@@ -740,7 +933,6 @@ export function ExpandedIsland({
               </div>
 
               <div className="flex items-center space-x-1">
-                {/* Perspective Mode Switcher */}
                 <div className="flex items-center space-x-0.5 bg-black/40 p-0.5 rounded-lg border border-white/[0.06]">
                   {(["direct", "simple", "decision"] as const).map((mode) => (
                     <button
@@ -753,10 +945,28 @@ export function ExpandedIsland({
                           : "text-neutral-400 hover:text-white"
                       }`}
                     >
-                      {mode === "direct" ? "Direct" : mode === "simple" ? "Beginner" : "Strategic"}
+                      {mode === "direct" ? "Direct" : mode === "simple" ? "Simple" : "Strategic"}
                     </button>
                   ))}
                 </div>
+
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => {
+                    const textToSpeak =
+                      answerViewMode === "simple"
+                        ? aiAnswer.simple_explanation || aiAnswer.answer
+                        : answerViewMode === "decision"
+                        ? aiAnswer.decision_explanation || aiAnswer.answer
+                        : aiAnswer.answer;
+                    handleToggleTts(textToSpeak, 999999);
+                  }}
+                  className="text-neutral-400 hover:text-amber-300 h-5 w-5 rounded"
+                  title="Speak Answer"
+                >
+                  <Volume2 className="w-3 h-3" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon-xs"
@@ -769,34 +979,12 @@ export function ExpandedIsland({
             </div>
 
             <p className="text-xs text-neutral-200 leading-relaxed">
-              {answerViewMode === "direct"
-                ? aiAnswer.answer
-                : answerViewMode === "simple"
+              {answerViewMode === "simple"
                 ? aiAnswer.simple_explanation || aiAnswer.answer
-                : aiAnswer.decision_explanation || aiAnswer.answer}
+                : answerViewMode === "decision"
+                ? aiAnswer.decision_explanation || aiAnswer.answer
+                : aiAnswer.answer}
             </p>
-
-            {aiAnswer.sources && aiAnswer.sources.length > 0 && (
-              <div className="pt-1.5 border-t border-white/[0.06] flex items-center justify-between text-[10px]">
-                <span className="text-neutral-400 flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                  <span>Grounded in {aiAnswer.sources.length} verified dispatches:</span>
-                </span>
-                <div className="flex items-center space-x-1.5 overflow-x-auto">
-                  {aiAnswer.sources.slice(0, 3).map((src) => (
-                    <button
-                      key={src.id}
-                      type="button"
-                      onClick={() => handleOpenArticle(src.article_url)}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.04] hover:bg-white/[0.08] text-amber-300/90 hover:text-amber-200 border border-white/[0.06] text-[9px] cursor-pointer"
-                    >
-                      <span>{src.publisher || "Source"}</span>
-                      <ArrowUpRight className="w-2.5 h-2.5" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -805,7 +993,6 @@ export function ExpandedIsland({
         ══════════════════════════════════════════════════════════════ */}
         {activeView === "intelligence" && (
           <div className="flex-1 flex flex-col min-h-0 space-y-2">
-            {/* Filter Pills & Explanation Mode Switcher */}
             <div className="flex items-center justify-between shrink-0 pb-1 gap-2">
               <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar">
                 {filterTabs.map((tab) => {
@@ -829,7 +1016,6 @@ export function ExpandedIsland({
               </div>
 
               <div className="flex items-center space-x-1 shrink-0">
-                {/* Sort toggle */}
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -850,7 +1036,6 @@ export function ExpandedIsland({
                   <TooltipContent side="bottom">Toggle sort: Latest / Impact</TooltipContent>
                 </Tooltip>
 
-                {/* 3-Mode Explanation Selector */}
                 <div className="flex items-center space-x-0.5 bg-black/40 p-0.5 rounded-lg border border-white/[0.06]">
                   {(["simple", "detailed", "decision"] as ExplanationMode[]).map((mode) => (
                     <button
@@ -870,16 +1055,13 @@ export function ExpandedIsland({
               </div>
             </div>
 
-            {/* Error State */}
             {storiesError && (
               <div className="px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-300 flex items-center gap-2 shrink-0">
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                 <span className="flex-1">{storiesError}</span>
-                <button type="button" onClick={() => setStoriesError(null)} className="text-rose-400 hover:text-rose-200 cursor-pointer">✕</button>
               </div>
             )}
 
-            {/* Story Intelligence Clusters List */}
             <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 min-h-0">
               {isLoadingStories ? (
                 <div className="space-y-2 py-2">
@@ -890,7 +1072,6 @@ export function ExpandedIsland({
                         <div className="h-3 w-16 bg-white/[0.06] rounded" />
                       </div>
                       <div className="h-4 w-5/6 bg-white/[0.05] rounded" />
-                      <div className="h-10 w-full bg-white/[0.03] rounded-xl" />
                     </div>
                   ))}
                 </div>
@@ -907,15 +1088,13 @@ export function ExpandedIsland({
                   return (
                     <div
                       key={cluster.id}
-                      className="p-3.5 rounded-2xl bg-white/[0.02] hover:bg-white/[0.035] border border-white/[0.06] hover:border-white/[0.12] transition-all space-y-2.5"
+                      className="p-3.5 rounded-2xl bg-white/[0.02] hover:bg-white/[0.035] border border-white/[0.06] hover:border-white/[0.12] transition-all space-y-2"
                     >
-                      {/* Top Badges */}
                       <div className="flex items-center justify-between text-[10px]">
                         <div className="flex items-center space-x-1.5">
                           <Badge variant="outline" className="h-4 px-1.5 py-0 text-[8px] uppercase tracking-wider bg-white/[0.04] border-white/[0.08] text-neutral-300 rounded font-semibold">
                             {cluster.category}
                           </Badge>
-
                           <Badge
                             variant="outline"
                             className={`h-4 px-1.5 py-0 text-[8px] font-semibold rounded gap-1 ${
@@ -926,49 +1105,39 @@ export function ExpandedIsland({
                           >
                             ★ {cluster.importance_score} Impact
                           </Badge>
-
                           {clusterArticles.length > 1 && (
                             <span className="text-[9px] text-neutral-400">
                               • {clusterArticles.length} sources
                             </span>
                           )}
                         </div>
-
                         <span className="text-neutral-500 text-[10px]">{formatTime(cluster.created_at)}</span>
                       </div>
 
-                      {/* Headline */}
                       <h3 className="text-xs font-semibold text-white leading-snug">{cluster.title}</h3>
 
-                      {/* Mode Explanation Preview */}
                       <div className="p-2.5 rounded-xl bg-black/40 border border-white/[0.05] space-y-1">
                         <div className="flex items-center justify-between text-[9px] font-medium text-amber-300/90">
-                          <span className="uppercase tracking-wider">{explanationMode} Intelligence Perspective</span>
+                          <span className="uppercase tracking-wider">{explanationMode} Perspective</span>
                           <span className="text-neutral-500 font-mono text-[8px]">{cluster.model_used}</span>
                         </div>
                         <p className="text-[11px] text-neutral-200 leading-relaxed">{activeExplanation}</p>
                       </div>
 
-                      {/* 5-Part Structured Analysis */}
                       <div className="space-y-1 pt-0.5">
                         <button
                           type="button"
                           onClick={() => setExpandedStoryId(isExpanded ? null : cluster.id)}
-                          className="w-full flex items-center justify-between text-[10px] text-neutral-400 hover:text-white py-1 cursor-pointer"
+                          className="w-full flex items-center justify-between text-[10px] text-neutral-400 hover:text-white py-0.5 cursor-pointer"
                         >
-                          <span className="font-medium flex items-center gap-1 text-neutral-300">
-                            <span>Deep 5-Point Verification Analysis</span>
-                            <span className="text-neutral-500 text-[9px]">(Why, Impact, Future & Uncertainties)</span>
+                          <span className="font-medium text-neutral-300">
+                            Deep 5-Point Verification Analysis
                           </span>
-                          {isExpanded ? (
-                            <ChevronUp className="w-3.5 h-3.5 text-neutral-400" />
-                          ) : (
-                            <ChevronDown className="w-3.5 h-3.5 text-neutral-400" />
-                          )}
+                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         </button>
 
                         {isExpanded && (
-                          <div className="grid grid-cols-1 gap-2 pt-1 animate-in fade-in slide-in-from-top-1 duration-150">
+                          <div className="grid grid-cols-1 gap-1.5 pt-1">
                             {[
                               { icon: "📌", label: "What happened?", text: cluster.what_happened },
                               { icon: "🔍", label: "Why did it happen?", text: cluster.why_it_happened },
@@ -987,10 +1156,9 @@ export function ExpandedIsland({
                         )}
                       </div>
 
-                      {/* Footer: Publisher Links + Ask About This Story */}
                       <div className="pt-2 border-t border-white/[0.05] flex items-center justify-between text-[10px]">
                         <div className="flex items-center space-x-1.5 overflow-x-auto no-scrollbar">
-                          {clusterArticles.slice(0, 4).map((art) => (
+                          {clusterArticles.slice(0, 3).map((art) => (
                             <button
                               key={art.id}
                               type="button"
@@ -1003,22 +1171,17 @@ export function ExpandedIsland({
                           ))}
                         </div>
 
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <button
-                                type="button"
-                                onClick={() => handleAskAboutStory(cluster)}
-                                disabled={isAskingAi}
-                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-medium cursor-pointer transition-all ${accent.bgSubtle} ${accent.textLight} border ${accent.borderSubtle} hover:opacity-80 disabled:opacity-40`}
-                              />
-                            }
-                          >
-                            <MessageSquarePlus className="w-2.5 h-2.5" />
-                            <span>Ask Nexora</span>
-                          </TooltipTrigger>
-                          <TooltipContent side="top">Ask Nexora about this story</TooltipContent>
-                        </Tooltip>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveView("assistant");
+                            setAssistantInput(`Can you explain more about this development: "${cluster.title}"?`);
+                          }}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[9px] font-medium cursor-pointer ${accent.bgSubtle} ${accent.textLight} border ${accent.borderSubtle}`}
+                        >
+                          <MessageSquarePlus className="w-2.5 h-2.5" />
+                          <span>Chat with Assistant</span>
+                        </button>
                       </div>
                     </div>
                   );
@@ -1026,21 +1189,14 @@ export function ExpandedIsland({
               ) : (
                 <div className="h-44 flex flex-col items-center justify-center text-center p-4 rounded-2xl bg-white/[0.01] border border-white/[0.04] space-y-2">
                   <Sparkles className="w-8 h-8 text-amber-400/80 stroke-[1.2]" />
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-medium text-white">No AI Story Clusters Available</p>
-                    <p className="text-[10px] text-neutral-400">
-                      Synchronize live feeds or trigger AI synthesis to generate intelligence breakdowns.
-                    </p>
-                  </div>
+                  <p className="text-xs font-medium text-white">No AI Story Clusters Available</p>
                   <Button
                     variant="outline"
                     size="xs"
-                    disabled={isProcessingAi}
                     onClick={handleProcessAiIntelligence}
                     className={`h-7 text-xs ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight}`}
                   >
-                    <RefreshCw className={`w-3 h-3 mr-1.5 ${isProcessingAi ? "animate-spin" : ""}`} />
-                    <span>{isProcessingAi ? "Synthesizing..." : "Generate AI Intelligence"}</span>
+                    Generate AI Intelligence
                   </Button>
                 </div>
               )}
@@ -1049,23 +1205,223 @@ export function ExpandedIsland({
         )}
 
         {/* ══════════════════════════════════════════════════════════════
-            VIEW 2: EXECUTIVE DAILY BRIEFINGS
+            VIEW 2: CONVERSATIONAL AI PERSONAL ASSISTANT
+        ══════════════════════════════════════════════════════════════ */}
+        {activeView === "assistant" && (
+          <div className="flex-1 flex flex-col min-h-0 space-y-2">
+            {/* Assistant Controls Bar */}
+            <div className="flex items-center justify-between shrink-0 pb-1 gap-2">
+              <div className="flex items-center space-x-2 truncate">
+                <Button
+                  variant="outline"
+                  size="xs"
+                  onClick={handleNewConversation}
+                  className="h-6 px-2 text-[10px] rounded-lg border-white/[0.1] hover:bg-white/[0.06] text-neutral-300 gap-1"
+                >
+                  <Plus className="w-3 h-3 text-amber-400" />
+                  <span>New Chat</span>
+                </Button>
+
+                {conversations.length > 0 && (
+                  <select
+                    value={activeConversationId || ""}
+                    onChange={(e) => handleSelectConversation(Number(e.target.value))}
+                    className="h-6 text-[10px] bg-black/60 border border-white/[0.1] rounded-lg px-2 text-neutral-300 max-w-[200px] truncate focus:outline-none"
+                  >
+                    {conversations.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.title}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="flex items-center space-x-2 text-[10px] text-neutral-400">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  Multi-Provider Assistant
+                </span>
+                {activeConversationId && (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={(e) => handleDeleteConversation(activeConversationId, e)}
+                    className="text-neutral-500 hover:text-rose-400 h-5 w-5"
+                    title="Delete Chat"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Chat Messages Feed */}
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 min-h-0">
+              {messages.length === 0 ? (
+                <div className="h-44 flex flex-col items-center justify-center text-center p-4 rounded-2xl bg-white/[0.01] border border-white/[0.04] space-y-2">
+                  <Bot className="w-8 h-8 text-sky-400 stroke-[1.2]" />
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-medium text-white">Ask Nexora Assistant</p>
+                    <p className="text-[10px] text-neutral-400 max-w-sm">
+                      Ask about recent news, current events, technology & AI breakthroughs, or company stock data.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 justify-center pt-1">
+                    {[
+                      "What happened in AI this week?",
+                      "Summarize recent tech earnings",
+                      "Why are chip stocks moving?",
+                    ].map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        onClick={() => {
+                          setAssistantInput(prompt);
+                        }}
+                        className="px-2 py-1 text-[9px] rounded-lg bg-white/[0.03] hover:bg-white/[0.08] text-neutral-300 border border-white/[0.06] cursor-pointer"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                messages.map((m) => {
+                  const isUser = m.role === "user";
+                  const sources: Article[] = m.sources_json ? JSON.parse(m.sources_json) : [];
+
+                  return (
+                    <div
+                      key={m.id}
+                      className={`flex flex-col ${isUser ? "items-end" : "items-start"} space-y-1`}
+                    >
+                      <div
+                        className={`max-w-[85%] p-3 rounded-2xl text-xs leading-relaxed ${
+                          isUser
+                            ? "bg-white/[0.08] border border-white/[0.12] text-white rounded-br-sm"
+                            : "bg-[#0c0e15] border border-white/[0.06] text-neutral-200 rounded-bl-sm space-y-2"
+                        }`}
+                      >
+                        <div className="whitespace-pre-wrap">{m.content}</div>
+
+                        {/* Grounded News Sources Tags */}
+                        {sources.length > 0 && (
+                          <div className="pt-2 border-t border-white/[0.06] space-y-1">
+                            <span className="text-[9px] text-neutral-400 flex items-center gap-1 font-semibold uppercase tracking-wider">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              Grounded in Verified Dispatches:
+                            </span>
+                            <div className="flex flex-wrap gap-1">
+                              {sources.map((s) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  onClick={() => handleOpenArticle(s.article_url)}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.04] hover:bg-white/[0.08] text-[9px] text-amber-300 border border-white/[0.06] cursor-pointer"
+                                >
+                                  <span>{s.publisher || "Source"}</span>
+                                  <ArrowUpRight className="w-2.5 h-2.5 opacity-60" />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {!isUser && (
+                          <div className="flex items-center justify-between pt-1 text-[9px] text-neutral-500">
+                            <span className="italic">Distinguishes verified news from AI reasoning</span>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              onClick={() => handleToggleTts(m.content, m.id)}
+                              className="text-neutral-400 hover:text-amber-300 h-5 w-5"
+                              title={playingMessageId === m.id ? "Stop Speech" : "Read Aloud"}
+                            >
+                              {playingMessageId === m.id ? (
+                                <Square className="w-2.5 h-2.5 text-rose-400" />
+                              ) : (
+                                <Volume2 className="w-3 h-3" />
+                              )}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* Assistant Input Form with Voice Dictation */}
+            <form
+              onSubmit={handleSendAssistant}
+              className={`group flex items-center bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.14] rounded-2xl px-3 py-1.5 shadow-inner shrink-0 ${accent.ring}`}
+            >
+              <Input
+                type="text"
+                value={assistantInput}
+                onChange={(e) => setAssistantInput(e.target.value)}
+                placeholder="Message Nexora Assistant (or click microphone to speak)..."
+                className="h-7 border-0 bg-transparent px-0 py-0 text-xs font-medium text-white placeholder:text-neutral-500 focus-visible:ring-0 shadow-none flex-1"
+              />
+
+              <div className="flex items-center space-x-1 shrink-0 ml-2">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={handleMicAssistant}
+                        className={`rounded-lg transition-all ${
+                          assistantMicActive
+                            ? "bg-rose-500/20 text-rose-300 ring-1 ring-rose-500/40 animate-pulse"
+                            : "text-neutral-400 hover:text-white hover:bg-white/[0.06]"
+                        }`}
+                      />
+                    }
+                  >
+                    <Mic className="w-3 h-3" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Voice Dictation</TooltipContent>
+                </Tooltip>
+
+                <Button
+                  type="submit"
+                  variant="ghost"
+                  size="icon-xs"
+                  disabled={!assistantInput.trim() || isSendingMessage}
+                  className="text-neutral-400 hover:text-white hover:bg-white/[0.06] rounded-lg disabled:opacity-40"
+                >
+                  {isSendingMessage ? (
+                    <RefreshCw className="w-3 h-3 animate-spin text-amber-400" />
+                  ) : (
+                    <CornerDownLeft className="w-3 h-3" />
+                  )}
+                </Button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════
+            VIEW 3: EXECUTIVE DAILY BRIEFINGS
         ══════════════════════════════════════════════════════════════ */}
         {activeView === "briefings" && (
           <div className="flex-1 flex flex-col min-h-0 space-y-2.5">
-            {/* Briefing Controls */}
             <div className="flex items-center justify-between shrink-0 gap-2 pb-1">
               <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar">
-                {(
-                  [
-                    { id: "morning", label: "Morning" },
-                    { id: "latest", label: "Latest" },
-                    { id: "overnight", label: "Overnight" },
-                    { id: "technology", label: "Tech & AI" },
-                    { id: "finance", label: "Finance" },
-                    { id: "world", label: "World" },
-                  ] as Array<{ id: BriefingType; label: string }>
-                ).map((type) => (
+                {[
+                  { id: "morning" as BriefingType, label: "Morning" },
+                  { id: "latest" as BriefingType, label: "Latest" },
+                  { id: "overnight" as BriefingType, label: "Overnight" },
+                  { id: "technology" as BriefingType, label: "Tech & AI" },
+                  { id: "finance" as BriefingType, label: "Finance" },
+                  { id: "world" as BriefingType, label: "World" },
+                ].map((type) => (
                   <button
                     key={type.id}
                     type="button"
@@ -1104,16 +1460,13 @@ export function ExpandedIsland({
               </div>
             </div>
 
-            {/* Error State */}
             {briefingsError && (
               <div className="px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-300 flex items-center gap-2 shrink-0">
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                 <span className="flex-1">{briefingsError}</span>
-                <button type="button" onClick={() => setBriefingsError(null)} className="text-rose-400 hover:text-rose-200 cursor-pointer">✕</button>
               </div>
             )}
 
-            {/* Archived Briefings Selector */}
             {briefings.length > 1 && (
               <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-[10px] shrink-0 no-scrollbar">
                 <span className="text-neutral-500 text-[9px] shrink-0">Archive:</span>
@@ -1130,26 +1483,26 @@ export function ExpandedIsland({
                   >
                     <ChevronRight className="w-2.5 h-2.5 opacity-60 shrink-0" />
                     <span className="truncate">{b.title}</span>
-                    {b.briefing_length && (
-                      <span className="shrink-0 text-[8px] opacity-60">
-                        {b.briefing_length === "short" ? "2m" : b.briefing_length === "standard" ? "5m" : "10m"}
-                      </span>
-                    )}
                   </button>
                 ))}
               </div>
             )}
 
-            {/* Briefing Display */}
             <div className="flex-1 overflow-y-auto pr-1 min-h-0 space-y-2">
               {activeBriefing ? (
                 <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-3">
                   <div className="flex items-center justify-between text-[10px]">
                     <span className="font-semibold text-amber-300 text-xs">{activeBriefing.title}</span>
                     <div className="flex items-center space-x-2 text-neutral-400">
-                      {activeBriefing.articles_count != null && (
-                        <span className="text-[9px]">{activeBriefing.articles_count} sources</span>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => handleToggleTts(activeBriefing.summary, 888888)}
+                        className="text-neutral-400 hover:text-amber-300 h-5 w-5"
+                        title="Read Briefing Aloud"
+                      >
+                        <Volume2 className="w-3 h-3" />
+                      </Button>
                       <Badge variant="outline" className="text-[8px] bg-white/[0.04] border-white/[0.08]">
                         {activeBriefing.model_used || "gpt-4o-mini"}
                       </Badge>
@@ -1164,20 +1517,14 @@ export function ExpandedIsland({
               ) : (
                 <div className="h-44 flex flex-col items-center justify-center text-center p-4 rounded-2xl bg-white/[0.01] border border-white/[0.04] space-y-2">
                   <BookOpen className="w-8 h-8 text-neutral-500 stroke-[1.2]" />
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-medium text-white">No Briefings Generated Yet</p>
-                    <p className="text-[10px] text-neutral-400">
-                      Select your intelligence stream and length above to synthesize a personalized executive briefing.
-                    </p>
-                  </div>
+                  <p className="text-xs font-medium text-white">No Briefings Generated Yet</p>
                   <Button
                     size="xs"
                     disabled={isGeneratingBriefing}
                     onClick={handleGenerateBriefing}
                     className="h-7 text-xs bg-amber-400 hover:bg-amber-300 text-neutral-950 font-semibold cursor-pointer"
                   >
-                    <Sparkles className="w-3 h-3 mr-1.5" />
-                    <span>Compile First Briefing</span>
+                    Compile First Briefing
                   </Button>
                 </div>
               )}
@@ -1186,11 +1533,123 @@ export function ExpandedIsland({
         )}
 
         {/* ══════════════════════════════════════════════════════════════
-            VIEW 3: LIVE RAW DISPATCHES STREAM
+            VIEW 4: MARKETS & FINANCE INTELLIGENCE
+        ══════════════════════════════════════════════════════════════ */}
+        {activeView === "finance" && (
+          <div className="flex-1 flex flex-col min-h-0 space-y-2">
+            {/* Quick Watchlist Add Bar */}
+            <div className="flex items-center justify-between shrink-0 gap-2 pb-0.5">
+              <span className="text-xs font-semibold text-white flex items-center gap-1.5">
+                <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Market Watchlist</span>
+              </span>
+
+              <form onSubmit={handleAddWatchlistTicker} className="flex items-center space-x-1.5">
+                <Input
+                  type="text"
+                  placeholder="+ Ticker (e.g. NVDA)"
+                  value={quickAddSymbol}
+                  onChange={(e) => setQuickAddSymbol(e.target.value)}
+                  className="h-6 text-[10px] font-mono bg-black/60 border-white/[0.1] rounded-lg px-2 text-white w-28 uppercase"
+                />
+                <Button
+                  type="submit"
+                  size="xs"
+                  disabled={!quickAddSymbol.trim()}
+                  className="h-6 px-2 text-[10px] rounded-lg bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-semibold"
+                >
+                  Add
+                </Button>
+              </form>
+            </div>
+
+            {financeError && (
+              <div className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[10px] text-rose-300">
+                {financeError}
+              </div>
+            )}
+
+            {/* Watchlist Stock Cards Grid */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-0">
+              {isLoadingQuotes ? (
+                <div className="space-y-2 py-2">
+                  {[1, 2, 3].map((n) => (
+                    <div key={n} className="h-16 rounded-2xl bg-white/[0.02] border border-white/[0.04] animate-pulse" />
+                  ))}
+                </div>
+              ) : quotes.length > 0 ? (
+                quotes.map((q) => {
+                  const isPositive = q.change >= 0;
+                  return (
+                    <div
+                      key={q.symbol}
+                      className="p-3 rounded-2xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] hover:border-white/[0.12] transition-all flex items-center justify-between gap-3"
+                    >
+                      <div className="truncate min-w-0 flex-1">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono text-xs font-bold text-white">{q.symbol}</span>
+                          <span className="text-[10px] text-neutral-400 truncate">{q.name}</span>
+                          {q.is_delayed && (
+                            <Badge variant="outline" className="text-[8px] px-1 py-0 bg-white/[0.04] text-neutral-400 border-white/[0.08]">
+                              Delayed
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-3 text-[10px] text-neutral-500 pt-0.5">
+                          <span>Open: ${q.open.toFixed(2)}</span>
+                          <span>High: ${q.high.toFixed(2)}</span>
+                          <span>Low: ${q.low.toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      {/* Sparkline mini-chart */}
+                      <div className="hidden sm:block shrink-0">
+                        {renderSparkline(q.sparkline, isPositive)}
+                      </div>
+
+                      {/* Price & Change Badge */}
+                      <div className="text-right shrink-0">
+                        <div className="text-xs font-mono font-bold text-white">
+                          ${q.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <div
+                          className={`inline-flex items-center gap-0.5 text-[10px] font-mono font-semibold ${
+                            isPositive ? "text-emerald-400" : "text-rose-400"
+                          }`}
+                        >
+                          {isPositive ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                          <span>
+                            {isPositive ? "+" : ""}
+                            {q.change.toFixed(2)} ({isPositive ? "+" : ""}
+                            {q.change_percent.toFixed(2)}%)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="h-44 flex flex-col items-center justify-center text-center p-4 rounded-2xl bg-white/[0.01] border border-white/[0.04] space-y-2">
+                  <TrendingUp className="w-8 h-8 text-neutral-500 stroke-[1.2]" />
+                  <p className="text-xs font-medium text-white">No Assets in Watchlist</p>
+                  <p className="text-[10px] text-neutral-400">
+                    Add tickers above or configure your Finnhub key in Settings.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="text-[9px] text-neutral-500 text-center shrink-0 pt-0.5">
+              Finnhub / Sample Market Data • Delayed quotes where applicable • Not investment advice
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════
+            VIEW 5: LIVE RAW DISPATCHES STREAM
         ══════════════════════════════════════════════════════════════ */}
         {activeView === "news" && (
           <div className="flex-1 flex flex-col min-h-0 space-y-2">
-            {/* Category Filter Pills Row */}
             <div className="flex items-center space-x-1 overflow-x-auto pb-0.5 shrink-0 no-scrollbar">
               {filterTabs.map((tab) => {
                 const isSelected = newsFilter === tab.id;
@@ -1212,10 +1671,8 @@ export function ExpandedIsland({
               })}
             </div>
 
-            {/* Advanced Filter Bar */}
             <div className="flex items-center justify-between shrink-0 gap-2">
               <div className="flex items-center space-x-1.5">
-                {/* Publisher Filter */}
                 {publishers.length > 0 && (
                   <select
                     value={publisherFilter}
@@ -1229,7 +1686,6 @@ export function ExpandedIsland({
                   </select>
                 )}
 
-                {/* Date Filter */}
                 <div className="flex items-center space-x-0.5 bg-black/40 p-0.5 rounded-lg border border-white/[0.06]">
                   {(["all", "today", "24h", "7d"] as DateFilter[]).map((d) => (
                     <button
@@ -1248,7 +1704,6 @@ export function ExpandedIsland({
                 </div>
               </div>
 
-              {/* Sort & Filter toggle */}
               <div className="flex items-center space-x-1">
                 <button
                   type="button"
@@ -1280,16 +1735,13 @@ export function ExpandedIsland({
               </div>
             </div>
 
-            {/* Error State */}
             {articlesError && (
               <div className="px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-300 flex items-center gap-2 shrink-0">
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                 <span className="flex-1">{articlesError}</span>
-                <button type="button" onClick={() => setArticlesError(null)} className="text-rose-400 hover:text-rose-200 cursor-pointer">✕</button>
               </div>
             )}
 
-            {/* Articles List */}
             <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-0">
               {isLoadingArticles ? (
                 <div className="space-y-2 py-2">
@@ -1297,7 +1749,6 @@ export function ExpandedIsland({
                     <div key={n} className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.04] animate-pulse space-y-1.5">
                       <div className="h-3 w-32 bg-white/[0.08] rounded" />
                       <div className="h-4 w-full bg-white/[0.05] rounded" />
-                      <div className="h-3 w-4/5 bg-white/[0.03] rounded" />
                     </div>
                   ))}
                 </div>
@@ -1344,62 +1795,30 @@ export function ExpandedIsland({
                     );
                   })}
 
-                  {/* Load More / Pagination */}
                   {hasMoreArticles && (
                     <button
                       type="button"
                       onClick={handleLoadMore}
                       disabled={isLoadingMore}
-                      className={`w-full py-2 text-[10px] rounded-xl border transition-all cursor-pointer ${
-                        isLoadingMore
-                          ? "text-neutral-500 border-white/[0.04] bg-white/[0.01]"
-                          : `text-neutral-400 hover:text-white border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.03]`
-                      }`}
+                      className="w-full py-2 text-[10px] rounded-xl border border-white/[0.06] hover:border-white/[0.12] hover:bg-white/[0.03] text-neutral-400 hover:text-white transition-all cursor-pointer"
                     >
-                      {isLoadingMore ? (
-                        <span className="flex items-center justify-center gap-1.5">
-                          <RefreshCw className="w-3 h-3 animate-spin" /> Loading more dispatches...
-                        </span>
-                      ) : (
-                        <span className="flex items-center justify-center gap-1.5">
-                          Load more dispatches <ChevronDown className="w-3 h-3" />
-                        </span>
-                      )}
+                      {isLoadingMore ? "Loading more dispatches..." : "Load more dispatches"}
                     </button>
                   )}
                 </>
               ) : (
                 <div className="h-44 flex flex-col items-center justify-center text-center p-4 rounded-2xl bg-white/[0.01] border border-white/[0.04] space-y-2">
                   <Newspaper className="w-8 h-8 text-neutral-500 stroke-[1.2]" />
-                  <div className="space-y-0.5">
-                    <p className="text-xs font-medium text-white">No articles found in this stream</p>
-                    <p className="text-[10px] text-neutral-400">
-                      {activeFiltersCount > 0
-                        ? "Try clearing the active filters or syncing new feeds."
-                        : "Sync from verified publishers to populate your SQLite news archive."}
-                    </p>
-                  </div>
-                  {activeFiltersCount > 0 ? (
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      onClick={() => { setPublisherFilter("all"); setSortMode("latest"); setDateFilter("all"); }}
-                      className="h-7 text-xs border-white/[0.1] text-neutral-300"
-                    >
-                      Clear all filters
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      disabled={isSyncing}
-                      onClick={handleManualSync}
-                      className={`h-7 text-xs ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight}`}
-                    >
-                      <RefreshCw className={`w-3 h-3 mr-1.5 ${isSyncing ? "animate-spin" : ""}`} />
-                      <span>{isSyncing ? "Syncing..." : "Sync Feeds Now"}</span>
-                    </Button>
-                  )}
+                  <p className="text-xs font-medium text-white">No articles found in this stream</p>
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    disabled={isSyncing}
+                    onClick={handleManualSync}
+                    className={`h-7 text-xs ${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight}`}
+                  >
+                    Sync Feeds Now
+                  </Button>
                 </div>
               )}
             </div>
@@ -1414,7 +1833,7 @@ export function ExpandedIsland({
         <div className="flex items-center space-x-2">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
           <span>
-            {stories.length} AI Clusters • {totalArticleCount > 0 ? totalArticleCount : articles.length} Dispatches • {briefings.length} Briefings
+            {stories.length} AI Stories • {conversations.length} Chats • {quotes.length} Watchlist Assets
           </span>
         </div>
 

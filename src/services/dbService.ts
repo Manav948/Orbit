@@ -1,7 +1,8 @@
 /**
  * dbService.ts
  *
- * Typed TypeScript client for all Nexora SQLite database and news aggregation IPC commands.
+ * Typed TypeScript client for all Nexora SQLite database, news aggregation,
+ * multi-provider AI, conversational assistant, finance intelligence, and desktop notifications.
  * Every method is async and uses the Tauri `invoke` bridge so database
  * and network operations never block the React render thread.
  */
@@ -106,6 +107,22 @@ export interface StoryClusterWithArticles {
   articles: Article[];
 }
 
+export interface ProviderConfigInfo {
+  id: string;
+  name: string;
+  has_key: boolean;
+  masked_key: string;
+  active_model: string;
+  available_models: string[];
+}
+
+export interface MultiAiConfigInfo {
+  active_provider: string;
+  providers: ProviderConfigInfo[];
+  explanation_mode: string;
+  briefing_length: string;
+}
+
 export interface AiConfigInfo {
   has_key: boolean;
   masked_key: string;
@@ -122,6 +139,93 @@ export interface AiAnswer {
   sources: Article[];
   model_used: string;
   created_at: string;
+}
+
+export interface Conversation {
+  id: number;
+  title: string;
+  provider: string;
+  model: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationMessage {
+  id: number;
+  conversation_id: number;
+  role: "user" | "assistant";
+  content: string;
+  sources_json?: string | null;
+  created_at: string;
+}
+
+export interface AssistantReply {
+  conversation_id: number;
+  message_id: number;
+  role: string;
+  content: string;
+  sources: Article[];
+  provider: string;
+  model: string;
+  created_at: string;
+}
+
+export interface StockQuote {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  change_percent: number;
+  high: number;
+  low: number;
+  open: number;
+  previous_close: number;
+  timestamp: string;
+  is_delayed: boolean;
+  provider: string;
+  sparkline: number[];
+}
+
+export interface FinanceConfig {
+  has_key: boolean;
+  masked_key: string;
+  provider: string;
+  watchlist: string[];
+}
+
+export interface NotificationPreferences {
+  enabled: boolean;
+  breaking: boolean;
+  briefings: boolean;
+  finance: boolean;
+  quiet_hours_enabled: boolean;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+}
+
+export interface StorageBreakdown {
+  db_path: string;
+  file_size_bytes: number;
+  file_size_mb: number;
+  article_count: number;
+  briefing_count: number;
+  conversation_count: number;
+  message_count: number;
+  notification_count: number;
+  source_count: number;
+}
+
+export interface CleanupResult {
+  deleted_articles: number;
+  deleted_notifications: number;
+  freed_bytes: number;
+}
+
+export interface ProcessMetrics {
+  ram_working_set_mb: number;
+  ram_peak_working_set_mb: number;
+  cpu_time_seconds: number;
+  uptime_seconds: number;
 }
 
 export interface CategoryPreference {
@@ -278,9 +382,31 @@ export const dbService = {
     return call<DbStats>("db_get_stats");
   },
 
-  // ── AI Intelligence ───────────────────────────────────────────────────────
+  // ── Multi-Provider AI Intelligence ─────────────────────────────────────────
   async getAiConfig(): Promise<AiConfigInfo> {
     return call<AiConfigInfo>("ai_get_config");
+  },
+
+  async getMultiAiConfig(): Promise<MultiAiConfigInfo> {
+    return call<MultiAiConfigInfo>("ai_get_providers_config");
+  },
+
+  async saveMultiAiConfig(config: {
+    activeProvider?: string;
+    provider?: string;
+    apiKey?: string;
+    model?: string;
+    explanationMode?: string;
+    briefingLength?: string;
+  }): Promise<void> {
+    return call<void>("ai_save_provider_config", {
+      activeProvider: config.activeProvider ?? null,
+      provider: config.provider ?? null,
+      apiKey: config.apiKey ?? null,
+      model: config.model ?? null,
+      explanationMode: config.explanationMode ?? null,
+      briefingLength: config.briefingLength ?? null,
+    });
   },
 
   async saveAiConfig(config: {
@@ -299,6 +425,12 @@ export const dbService = {
 
   async testAiConnection(): Promise<string> {
     return call<string>("ai_test_connection");
+  },
+
+  async testProviderConnection(provider?: string): Promise<string> {
+    return call<string>("ai_test_provider_connection", {
+      provider: provider ?? null,
+    });
   },
 
   async processNewsIntelligence(
@@ -354,5 +486,116 @@ export const dbService = {
       question,
       storyContext: storyContext ?? null,
     });
+  },
+
+  // ── Conversational Assistant ──────────────────────────────────────────────
+  async sendAssistantMessage(
+    message: string,
+    conversationId?: number
+  ): Promise<AssistantReply> {
+    return call<AssistantReply>("assistant_send_message", {
+      conversationId: conversationId ?? null,
+      message,
+    });
+  },
+
+  async getConversations(limit?: number): Promise<Conversation[]> {
+    return call<Conversation[]>("assistant_get_conversations", {
+      limit: limit ?? null,
+    });
+  },
+
+  async getConversationMessages(conversationId: number): Promise<ConversationMessage[]> {
+    return call<ConversationMessage[]>("assistant_get_messages", {
+      conversationId,
+    });
+  },
+
+  async createConversation(title: string): Promise<number> {
+    return call<number>("assistant_create_conversation", { title });
+  },
+
+  async deleteConversation(conversationId: number): Promise<void> {
+    return call<void>("assistant_delete_conversation", { conversationId });
+  },
+
+  // ── Finance Intelligence ──────────────────────────────────────────────────
+  async getFinanceConfig(): Promise<FinanceConfig> {
+    return call<FinanceConfig>("finance_get_config");
+  },
+
+  async saveFinanceConfig(config: {
+    apiKey?: string;
+    provider?: string;
+  }): Promise<void> {
+    return call<void>("finance_save_config", {
+      apiKey: config.apiKey ?? null,
+      provider: config.provider ?? null,
+    });
+  },
+
+  async getFinanceQuote(symbol: string): Promise<StockQuote> {
+    return call<StockQuote>("finance_get_quote", { symbol });
+  },
+
+  async getWatchlistQuotes(symbols?: string[]): Promise<StockQuote[]> {
+    return call<StockQuote[]>("finance_get_watchlist_quotes", {
+      symbols: symbols ?? null,
+    });
+  },
+
+  async saveWatchlist(symbols: string[]): Promise<void> {
+    return call<void>("finance_save_watchlist", { symbols });
+  },
+
+  // ── Desktop Notifications ─────────────────────────────────────────────────
+  async getNotificationPreferences(): Promise<NotificationPreferences> {
+    return call<NotificationPreferences>("notification_get_preferences");
+  },
+
+  async saveNotificationPreferences(
+    preferences: NotificationPreferences
+  ): Promise<void> {
+    return call<void>("notification_save_preferences", { preferences });
+  },
+
+  async sendDesktopNotification(
+    title: string,
+    body: string,
+    topic: string,
+    force?: boolean
+  ): Promise<boolean> {
+    return call<boolean>("notification_send", {
+      title,
+      body,
+      topic,
+      force: force ?? null,
+    });
+  },
+
+  // ── Database & Storage Management ─────────────────────────────────────────
+  async getStorageBreakdown(): Promise<StorageBreakdown> {
+    return call<StorageBreakdown>("db_get_storage_breakdown");
+  },
+
+  async clearTemporaryCache(): Promise<CleanupResult> {
+    return call<CleanupResult>("db_clear_temporary_cache");
+  },
+
+  async backupDatabase(destPath?: string): Promise<string> {
+    return call<string>("db_backup_database", {
+      destPath: destPath ?? null,
+    });
+  },
+
+  async restoreDatabase(backupFilePath: string): Promise<void> {
+    return call<void>("db_restore_database", {
+      backupFilePath,
+    });
+  },
+
+  // ── System & Process Telemetry ───────────────────────────────────────────
+  async getProcessMetrics(): Promise<ProcessMetrics> {
+    return call<ProcessMetrics>("system_get_process_metrics");
   },
 };

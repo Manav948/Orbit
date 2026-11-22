@@ -1,18 +1,22 @@
-//! AI Intelligence Engine: Summarization, Story Grouping, Briefings, and RAG Q&A.
+//! AI Intelligence Engine: Summarization, Story Grouping, Briefings, RAG Q&A, and Personal Assistant.
 //!
 //! Orchestrates article processing, structured 5-part intelligence generation,
-//! conversational follow-up questions with source grounding, and daily briefings.
+//! conversational follow-up questions with source grounding, multi-turn assistant chat, and daily briefings.
 //! All database locks are acquired only for brief queries/inserts and released before
 //! network calls to ensure non-blocking, responsive concurrency.
 
 use serde::{Deserialize, Serialize};
 
-use crate::ai::client::{get_api_key, get_model, send_chat_completion};
+use crate::ai::client::{
+    get_active_provider, get_provider_api_key, get_provider_model, send_chat_completion_with_provider,
+    send_conversation_completion, AiProvider, ChatMessage,
+};
 use crate::ai::clustering::{cluster_articles, tokenize, RawCluster};
 use crate::db::repository::{
-    find_story_cluster_by_hash, get_articles, get_story_clusters_with_articles,
-    insert_briefing, insert_story_cluster, search_articles_for_question, Article,
-    Briefing, NewBriefing, NewStoryCluster, StoryClusterWithArticles,
+    add_conversation_message, create_conversation, find_story_cluster_by_hash, get_articles,
+    get_conversation, get_conversation_messages, get_story_clusters_with_articles, insert_briefing,
+    insert_story_cluster, search_articles_for_question, Article, Briefing,
+    NewBriefing, NewStoryCluster, StoryClusterWithArticles,
 };
 use crate::db::DbState;
 
@@ -37,6 +41,18 @@ pub struct AiAnswer {
     pub decision_explanation: Option<String>,
     pub sources: Vec<Article>,
     pub model_used: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssistantReply {
+    pub conversation_id: i64,
+    pub message_id: i64,
+    pub role: String,
+    pub content: String,
+    pub sources: Vec<Article>,
+    pub provider: String,
+    pub model: String,
     pub created_at: String,
 }
 
@@ -80,6 +96,15 @@ RULES:
   "decision_explanation": "Strategic takeaway or key metric to watch."
 }"#;
 
+const SYSTEM_ASSISTANT_PROMPT: &str = r#"You are Nexora, a personal AI desktop assistant.
+You help users with questions, news briefings, analysis of current events, technology/AI advancements, and financial markets.
+
+GUIDELINES:
+1. When answering questions regarding recent news, companies, or events, prioritize any provided verified news dispatches and cite publishers.
+2. Clearly distinguish between verified facts from news reports and speculative analysis or AI general knowledge.
+3. If asked for financial advice, provide objective market data and context, but explicitly clarify that you do not offer personalized investment recommendations.
+4. Be concise, direct, helpful, and objective. Use Markdown formatting with bold headers and bullet points where helpful."#;
+
 /// Process raw articles from SQLite into structured AI story intelligence.
 pub async fn process_news_intelligence(
     db: &DbState,
@@ -88,12 +113,13 @@ pub async fn process_news_intelligence(
     force_refresh: bool,
 ) -> Result<Vec<StoryClusterWithArticles>, String> {
     // 1. Fetch recent articles from SQLite (brief lock)
-    let (articles, api_key, model) = {
+    let (articles, provider, api_key, model) = {
         let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
         let arts = get_articles(&conn, category, limit.clamp(10, 80))?;
-        let key = get_api_key(&conn);
-        let mdl = get_model(&conn);
-        (arts, key, mdl)
+        let prov = get_active_provider(&conn);
+        let key = get_provider_api_key(&conn, prov);
+        let mdl = get_provider_model(&conn, prov);
+        (arts, prov, key, mdl)
     };
 
     if articles.is_empty() {
@@ -136,8 +162,9 @@ pub async fn process_news_intelligence(
         );
 
         let (analysis, model_used) = if let Some(ref key) = api_key {
-            // Call official OpenAI API with structured JSON output (no lock held during HTTP call!)
-            match send_chat_completion(
+            // Call AI provider with structured JSON output (no lock held during HTTP call!)
+            match send_chat_completion_with_provider(
+                provider,
                 key,
                 &model,
                 SYSTEM_ANALYSIS_PROMPT,
@@ -158,15 +185,11 @@ pub async fn process_news_intelligence(
             (generate_heuristic_fallback(cluster), "heuristic-preview".to_string())
         };
 
-        // Save story cluster to SQLite (brief lock)
+        // Save cluster to SQLite (brief lock)
         let new_cluster = NewStoryCluster {
             cluster_hash: cluster.cluster_hash.clone(),
             category: cluster.category.clone(),
-            title: if !analysis.title.trim().is_empty() {
-                analysis.title
-            } else {
-                cluster.primary_title.clone()
-            },
+            title: analysis.title,
             what_happened: analysis.what_happened,
             why_it_happened: analysis.why_it_happened,
             why_it_matters: analysis.why_it_matters,
@@ -179,106 +202,76 @@ pub async fn process_news_intelligence(
             model_used,
         };
 
-        {
-            let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
-            let _ = insert_story_cluster(&conn, &new_cluster, &article_ids);
-        }
+        let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let _ = insert_story_cluster(&conn, &new_cluster, &article_ids);
     }
 
-    // Return the latest story clusters with attached source articles
+    // Return the clusters with articles
     let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
     get_story_clusters_with_articles(&conn, category, None, None, 10)
 }
 
-/// Fallback extraction when offline or API key is not yet configured.
 fn generate_heuristic_fallback(cluster: &RawCluster) -> StructuredAnalysis {
     let primary = &cluster.articles[0];
-    let publisher = primary.publisher.as_deref().unwrap_or("Verified Publisher");
-    let desc = primary.description.as_deref().unwrap_or("No detailed snippet available.");
-
-    let source_names = cluster.distinct_publishers.join(", ");
+    let headline = primary.title.clone();
+    let publisher = primary.publisher.as_deref().unwrap_or("News Wire");
+    let desc = primary.description.as_deref().unwrap_or("Ongoing developments reported.");
 
     StructuredAnalysis {
-        title: primary.title.clone(),
-        what_happened: format!(
-            "{}. Reported by {}.",
-            primary.title,
-            if source_names.is_empty() { publisher } else { &source_names }
-        ),
+        title: headline.clone(),
+        what_happened: format!("{desc} Reported by {publisher}."),
         why_it_happened: format!(
-            "According to initial reporting from {}: {}",
-            publisher, desc
+            "Emerging report covered across {} corroborated source dispatch(es). Full contextual causes pending deeper verification.",
+            cluster.articles.len()
         ),
         why_it_matters: format!(
-            "This development in {} is monitored across multiple newsrooms. Cross-publisher coverage indicates notable interest.",
+            "Pertains to developments in {} with potential sector-wide implications.",
             cluster.category
         ),
-        what_happens_next: "Follow live dispatches for ongoing updates, official briefings, and corroborating statements.".to_string(),
-        what_is_uncertain: if cluster.distinct_publishers.len() > 1 {
-            format!("Reporting corroborated by {} sources. Granular details and second-order impacts remain subject to further official confirmation.", cluster.distinct_publishers.len())
-        } else {
-            "Single-source report. Awaiting independent corroboration and detailed statements from other major publishers.".to_string()
-        },
-        simple_summary: format!(
-            "In brief: {} (Source: {})",
-            primary.title, publisher
-        ),
+        what_happens_next: "Subsequent statements and updates expected as developments unfold.".to_string(),
+        what_is_uncertain: "Exact timeline, downstream impacts, and official confirmations are still developing.".to_string(),
+        simple_summary: format!("{headline}: {desc}"),
         detailed_summary: format!(
-            "Comprehensive reporting from {} indicates: {}. Supporting dispatches continue to update.",
+            "This story is corroborated by {}.\n\nContext: {}\n\nFurther dispatches will be synchronized in upcoming briefings.",
             publisher, desc
         ),
         decision_summary: format!(
-            "Strategic indicator: Monitor {} developments for subsequent impacts on regulatory, market, or operational horizons.",
-            cluster.category
+            "Monitor {} signals regarding {}.",
+            cluster.category, headline
         ),
     }
 }
 
-/// Generate a daily or category-specific intelligence briefing.
+/// Generate a daily briefing across recent news articles.
 pub async fn generate_briefing(
     db: &DbState,
     briefing_type: &str,
     briefing_length: &str,
 ) -> Result<Briefing, String> {
     let category_filter = match briefing_type {
+        "world" => Some("world"),
         "technology" => Some("technology"),
         "finance" => Some("finance"),
-        "world" => Some("world"),
         _ => None,
     };
 
-    let (articles, api_key, model) = {
+    let (articles, provider, api_key, model) = {
         let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
-        let arts = get_articles(&conn, category_filter, 25)?;
-        let key = get_api_key(&conn);
-        let mdl = get_model(&conn);
-        (arts, key, mdl)
+        let arts = get_articles(&conn, category_filter, 20)?;
+        let prov = get_active_provider(&conn);
+        let key = get_provider_api_key(&conn, prov);
+        let mdl = get_provider_model(&conn, prov);
+        (arts, prov, key, mdl)
     };
 
     if articles.is_empty() {
-        return Err("No news articles available to compile a briefing. Please synchronize feeds first.".to_string());
+        return Err("No articles found in database to compile briefing. Please sync news feeds first.".to_string());
     }
 
-    let target_words = match briefing_length {
-        "short" => 300,
-        "detailed" => 1300,
-        _ => 700,
-    };
-
-    let title_prefix = match briefing_type {
-        "morning" => "Morning Intelligence Briefing",
-        "latest" => "Latest Developments Briefing",
-        "overnight" => "Overnight Events Dispatch",
-        "technology" => "Technology & AI Executive Briefing",
-        "finance" => "Financial & Market Developments",
-        "world" => "World Affairs Global Dispatch",
-        _ => "Nexora Intelligence Briefing",
-    };
-
-    let mut context_text = String::new();
+    let mut context_summary = String::new();
     for (i, art) in articles.iter().take(12).enumerate() {
-        context_text.push_str(&format!(
-            "{}. [{}] {} - {}\n",
+        context_summary.push_str(&format!(
+            "[{}] ({}) {}\n{}\n\n",
             i + 1,
             art.publisher.as_deref().unwrap_or("Wire"),
             art.title,
@@ -286,46 +279,84 @@ pub async fn generate_briefing(
         ));
     }
 
-    let (summary_content, model_used) = if let Some(ref key) = api_key {
-        let system_prompt = format!(
-            "You are Nexora's Executive Briefing Editor. Create a polished, factual intelligence briefing.\n\
-             TARGET LENGTH: ~{target_words} words ({briefing_length} mode).\n\
-             FORMAT: Clean markdown with sections: ## Executive Summary, ## Key Developments (cite publishers), and ## Critical Signals to Watch.\n\
-             Strictly avoid hallucinated facts or investment advice."
-        );
-        let user_prompt = format!(
-            "Generate a {title_prefix} based on these dispatches:\n\n{context_text}"
-        );
-
-        match send_chat_completion(key, &model, &system_prompt, &user_prompt, false, Some(2000)).await {
-            Ok(content) => (content, model.clone()),
-            Err(e) => {
-                let fallback = format!(
-                    "## Executive Summary\n\nIntelligence compilation based on {} dispatches across {}.\n\n## Key Developments\n\n{}\n\n*(Note: Live AI synthesis fallback due to: {})*",
-                    articles.len(),
-                    briefing_type,
-                    context_text,
-                    e
-                );
-                (fallback, "heuristic-fallback".to_string())
-            }
-        }
-    } else {
-        let fallback = format!(
-            "## Executive Summary\n\nAutomated synthesis of {} dispatches compiled locally.\n\n## Key Developments\n\n{}\n\n*(Configure OpenAI API Key in Settings > AI Configuration for rich analytical synthesis)*",
-            articles.len(),
-            context_text
-        );
-        (fallback, "local-synthesis".to_string())
+    let length_instruction = match briefing_length {
+        "short" => "Keep the briefing concise (approximately 2 minutes reading time, around 200 words). Use bullet points.",
+        "detailed" => "Provide an in-depth executive briefing (around 500-700 words) with detailed background, implications, and bullet points.",
+        _ => "Provide a balanced, structured briefing (around 350-400 words) with key developments, strategic impact, and key takeaways.",
     };
 
+    let system_prompt = format!(
+        "You are the Nexora Desktop Intelligence Assistant executive editor.\n\
+         Generate a structured briefing based strictly on the provided recent dispatches.\n\
+         {length_instruction}\n\
+         Rules: Ground all claims in the provided articles. Cite publishers. Never invent facts."
+    );
+
+    let user_prompt = format!(
+        "Topic: {} Briefing\nDispatches:\n{}",
+        briefing_type.to_uppercase(),
+        context_summary
+    );
+
+    let summary = if let Some(ref key) = api_key {
+        send_chat_completion_with_provider(
+            provider,
+            key,
+            &model,
+            &system_prompt,
+            &user_prompt,
+            false,
+            Some(1200),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            format!(
+                "Executive Briefing ({briefing_type}): Compiled from {} articles.\n\nKey highlights:\n- {}",
+                articles.len(),
+                articles
+                    .iter()
+                    .take(4)
+                    .map(|a| a.title.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n- ")
+            )
+        })
+    } else {
+        format!(
+            "Executive Briefing ({briefing_type}) [Preview Mode]:\n\nRecent Top Dispatches:\n- {}",
+            articles
+                .iter()
+                .take(5)
+                .map(|a| format!("{} ({})", a.title, a.publisher.as_deref().unwrap_or("Wire")))
+                .collect::<Vec<_>>()
+                .join("\n- ")
+        )
+    };
+
+    let title = format!(
+        "{} Briefing ({})",
+        match briefing_type {
+            "morning" => "Morning Executive",
+            "overnight" => "Overnight Intelligence",
+            "technology" => "Technology & AI",
+            "finance" => "Financial Markets",
+            "world" => "World Affairs",
+            _ => "Executive News",
+        },
+        match briefing_length {
+            "short" => "Quick 2m",
+            "detailed" => "Deep 10m",
+            _ => "Standard 5m",
+        }
+    );
+
     let new_briefing = NewBriefing {
-        title: format!("{title_prefix} ({briefing_length})"),
-        summary: summary_content,
-        category: category_filter.unwrap_or("general").to_string(),
+        title,
+        summary,
+        category: category_filter.unwrap_or("all").to_string(),
         briefing_type: Some(briefing_type.to_string()),
         briefing_length: Some(briefing_length.to_string()),
-        model_used: Some(model_used),
+        model_used: Some(if api_key.is_some() { model } else { "heuristic-preview".to_string() }),
         articles_count: Some(articles.len() as i64),
     };
 
@@ -367,16 +398,16 @@ pub async fn ask_question(
         return Err("Please enter a question to ask Nexora.".to_string());
     }
 
-    // Tokenize question to find matching articles in SQLite
     let tokens = tokenize(question_trimmed);
     let token_vec: Vec<String> = tokens.into_iter().collect();
 
-    let (matching_articles, api_key, model) = {
+    let (matching_articles, provider, api_key, model) = {
         let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
         let arts = search_articles_for_question(&conn, &token_vec, 6)?;
-        let key = get_api_key(&conn);
-        let mdl = get_model(&conn);
-        (arts, key, mdl)
+        let prov = get_active_provider(&conn);
+        let key = get_provider_api_key(&conn, prov);
+        let mdl = get_provider_model(&conn, prov);
+        (arts, prov, key, mdl)
     };
 
     if matching_articles.is_empty() && story_context.is_none() {
@@ -394,7 +425,6 @@ pub async fn ask_question(
         });
     }
 
-    // Prepare ground truth context
     let mut context_text = String::new();
     if let Some(ctx) = story_context {
         context_text.push_str(&format!("[Selected Story Focus]\n{}\n\n", ctx));
@@ -417,7 +447,8 @@ pub async fn ask_question(
             question_trimmed, context_text
         );
 
-        match send_chat_completion(
+        match send_chat_completion_with_provider(
+            provider,
             key,
             &model,
             SYSTEM_QUESTION_PROMPT,
@@ -446,7 +477,6 @@ pub async fn ask_question(
         }
     }
 
-    // Local grounded answer if OpenAI call unavailable
     let primary = if !matching_articles.is_empty() {
         Some(&matching_articles[0])
     } else {
@@ -471,20 +501,162 @@ pub async fn ask_question(
     })
 }
 
-/// Test connection to OpenAI API with the configured key.
-pub async fn test_ai_connection(db: &DbState) -> Result<String, String> {
-    let (key, model) = {
+/// Multi-turn conversational personal assistant.
+pub async fn assistant_chat(
+    db: &DbState,
+    conversation_id: Option<i64>,
+    user_message: &str,
+) -> Result<AssistantReply, String> {
+    let msg_trimmed = user_message.trim();
+    if msg_trimmed.is_empty() {
+        return Err("Please enter a message.".to_string());
+    }
+
+    let (cid, history, provider, api_key, model) = {
         let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
-        let k = get_api_key(&conn).ok_or_else(|| {
-            "No OpenAI API key found. Please enter your API key in Settings > AI Configuration or set OPENAI_API_KEY.".to_string()
+        let prov = get_active_provider(&conn);
+        let key = get_provider_api_key(&conn, prov);
+        let mdl = get_provider_model(&conn, prov);
+
+        let active_cid = match conversation_id {
+            Some(id) if get_conversation(&conn, id)?.is_some() => id,
+            _ => {
+                // Generate a short title from the first ~6 words of the message
+                let words: Vec<&str> = msg_trimmed.split_whitespace().take(6).collect();
+                let title = words.join(" ");
+                let safe_title = if title.is_empty() { "New Conversation".to_string() } else { title };
+                create_conversation(&conn, &safe_title, prov.as_str(), &mdl)?
+            }
+        };
+
+        // Record user message
+        let _ = add_conversation_message(&conn, active_cid, "user", msg_trimmed, None)?;
+
+        // Retrieve last 10 messages for context
+        let msgs = get_conversation_messages(&conn, active_cid)?;
+        (active_cid, msgs, prov, key, mdl)
+    };
+
+    // Grounding: search SQLite for relevant news articles if message references current events/news
+    let tokens = tokenize(msg_trimmed);
+    let token_vec: Vec<String> = tokens.into_iter().collect();
+    let matching_articles = {
+        let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        search_articles_for_question(&conn, &token_vec, 4).unwrap_or_default()
+    };
+
+    let mut system_context = SYSTEM_ASSISTANT_PROMPT.to_string();
+    if !matching_articles.is_empty() {
+        system_context.push_str("\n\n--- RELEVANT DISPATCHES IN LOCAL DATABASE ---\n");
+        for art in &matching_articles {
+            system_context.push_str(&format!(
+                "- [{}] {}: {}\n",
+                art.publisher.as_deref().unwrap_or("Wire"),
+                art.title,
+                art.description.as_deref().unwrap_or("")
+            ));
+        }
+        system_context.push_str("----------------------------------------------\n");
+    }
+
+    let mut chat_messages: Vec<ChatMessage> = Vec::new();
+    chat_messages.push(ChatMessage {
+        role: "system".to_string(),
+        content: system_context,
+    });
+
+    for msg in history.iter().rev().take(8).rev() {
+        chat_messages.push(ChatMessage {
+            role: msg.role.clone(),
+            content: msg.content.clone(),
+        });
+    }
+
+    let (assistant_text, final_model) = if let Some(ref key) = api_key {
+        match send_conversation_completion(provider, key, &model, chat_messages, Some(1200)).await {
+            Ok(reply) => (reply, model.clone()),
+            Err(e) => (
+                format!("**[{} Response Error]** {}\n\n*Falling back to local intelligence mode.*", provider.display_name(), e),
+                "error-fallback".to_string(),
+            ),
+        }
+    } else {
+        (
+            format!(
+                "**Nexora Assistant (Local Mode):**\n\nI received your query: *\"{}\"*\n\nTo enable conversational responses from **Groq, OpenAI, or Google Gemini**, please configure your API key in **Settings > AI Configuration**.",
+                msg_trimmed
+            ),
+            "local-preview".to_string(),
+        )
+    };
+
+    // Store sources in JSON if present
+    let sources_json = if !matching_articles.is_empty() {
+        serde_json::to_string(&matching_articles).ok()
+    } else {
+        None
+    };
+
+    let msg_id = {
+        let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        add_conversation_message(&conn, cid, "assistant", &assistant_text, sources_json.as_deref())?
+    };
+
+    Ok(AssistantReply {
+        conversation_id: cid,
+        message_id: msg_id,
+        role: "assistant".to_string(),
+        content: assistant_text,
+        sources: matching_articles,
+        provider: provider.as_str().to_string(),
+        model: final_model,
+        created_at: "Just now".to_string(),
+    })
+}
+
+/// Test connection to specified or active AI provider.
+pub async fn test_provider_connection(
+    db: &DbState,
+    provider_override: Option<&str>,
+) -> Result<String, String> {
+    let (provider, key, model) = {
+        let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let prov = provider_override
+            .map(AiProvider::from_str_name)
+            .unwrap_or_else(|| get_active_provider(&conn));
+        let k = get_provider_api_key(&conn, prov).ok_or_else(|| {
+            format!(
+                "No API key found for {}. Please enter an API key in Settings > AI Configuration or set the corresponding environment variable.",
+                prov.display_name()
+            )
         })?;
-        let m = get_model(&conn);
-        (k, m)
+        let m = get_provider_model(&conn, prov);
+        (prov, k, m)
     };
 
     let system_prompt = "You are an API diagnostic tester. Respond with a short confirmation.";
     let user_prompt = "Ping test. Please reply 'Pong: Nexora Intelligence Connected'.";
 
-    let response = send_chat_completion(&key, &model, system_prompt, user_prompt, false, Some(30)).await?;
-    Ok(format!("Connected to OpenAI ({model}) successfully. Response: {response}"))
+    let response = send_chat_completion_with_provider(
+        provider,
+        &key,
+        &model,
+        system_prompt,
+        user_prompt,
+        false,
+        Some(30),
+    )
+    .await?;
+
+    Ok(format!(
+        "Connected to {} ({}) successfully. Response: {}",
+        provider.display_name(),
+        model,
+        response.trim()
+    ))
+}
+
+/// Backwards compatible test_ai_connection.
+pub async fn test_ai_connection(db: &DbState) -> Result<String, String> {
+    test_provider_connection(db, None).await
 }

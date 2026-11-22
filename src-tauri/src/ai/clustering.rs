@@ -41,9 +41,11 @@ static IMPACT_KEYWORDS: &[&str] = &[
 pub struct RawCluster {
     pub cluster_hash: String,
     pub category: String,
+    #[allow(dead_code)]
     pub primary_title: String,
     pub articles: Vec<Article>,
     pub importance_score: i64,
+    #[allow(dead_code)]
     pub distinct_publishers: Vec<String>,
 }
 

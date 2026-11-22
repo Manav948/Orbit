@@ -8,11 +8,13 @@ use tauri::State;
 
 use crate::db::{
     repository::{
-        add_news_source, delete_news_source, delete_setting, get_all_settings, get_articles,
-        get_articles_paginated, get_briefings_by_category, get_category_preferences, get_db_stats,
-        get_latest_briefings, get_news_sources, get_setting, insert_articles, prune_old_articles,
-        set_news_source_enabled, upsert_briefing, upsert_category_preference, upsert_setting,
-        Article, Briefing, CategoryPreference, DbSetting, NewArticle, NewBriefing, NewsSource,
+        add_news_source, backup_database, clear_temporary_cache, delete_news_source,
+        delete_setting, get_all_settings, get_articles, get_articles_paginated,
+        get_briefings_by_category, get_category_preferences, get_db_stats, get_latest_briefings,
+        get_news_sources, get_setting, get_storage_breakdown, insert_articles, prune_old_articles,
+        restore_database, set_news_source_enabled, upsert_briefing, upsert_category_preference,
+        upsert_setting, Article, Briefing, CategoryPreference, CleanupResult, DbSetting,
+        NewArticle, NewBriefing, NewsSource, StorageBreakdown,
     },
     DbState,
 };
@@ -252,6 +254,70 @@ pub fn ai_get_config(
 }
 
 #[tauri::command]
+pub fn ai_get_providers_config(
+    state: State<'_, DbState>,
+) -> Result<crate::ai::MultiAiConfigInfo, String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    Ok(crate::ai::get_multi_ai_config_info(&conn))
+}
+
+#[tauri::command]
+pub fn ai_save_provider_config(
+    state: State<'_, DbState>,
+    active_provider: Option<String>,
+    provider: Option<String>,
+    api_key: Option<String>,
+    model: Option<String>,
+    explanation_mode: Option<String>,
+    briefing_length: Option<String>,
+) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+
+    if let Some(act) = active_provider {
+        let trimmed = act.trim().to_lowercase();
+        if !trimmed.is_empty() {
+            crate::db::repository::upsert_setting(&conn, "active_ai_provider", &trimmed)?;
+        }
+    }
+
+    let target_prov = provider
+        .as_deref()
+        .map(crate::ai::AiProvider::from_str_name)
+        .unwrap_or_else(|| crate::ai::client::get_active_provider(&conn));
+
+    if let Some(key) = api_key {
+        let trimmed = key.trim();
+        if !trimmed.is_empty() && !trimmed.contains('•') {
+            crate::db::repository::upsert_setting(&conn, target_prov.key_setting_name(), trimmed)?;
+        }
+    }
+
+    if let Some(mdl) = model {
+        let trimmed = mdl.trim();
+        if !trimmed.is_empty() {
+            crate::db::repository::upsert_setting(&conn, target_prov.model_setting_name(), trimmed)?;
+        }
+    }
+
+    if let Some(mode) = explanation_mode {
+        crate::db::repository::upsert_setting(&conn, "ai_explanation_mode", mode.trim())?;
+    }
+    if let Some(len) = briefing_length {
+        crate::db::repository::upsert_setting(&conn, "briefing_length", len.trim())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ai_test_provider_connection(
+    state: State<'_, DbState>,
+    provider: Option<String>,
+) -> Result<String, String> {
+    crate::ai::test_provider_connection(&state, provider.as_deref()).await
+}
+
+#[tauri::command]
 pub fn ai_save_config(
     state: State<'_, DbState>,
     api_key: Option<String>,
@@ -283,6 +349,162 @@ pub async fn ai_test_connection(
     state: State<'_, DbState>,
 ) -> Result<String, String> {
     crate::ai::test_ai_connection(&state).await
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conversational Assistant Commands
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn assistant_send_message(
+    state: State<'_, DbState>,
+    conversation_id: Option<i64>,
+    message: String,
+) -> Result<crate::ai::engine::AssistantReply, String> {
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return Err("Message cannot be empty".to_string());
+    }
+    if trimmed.len() > 10000 {
+        return Err("Message exceeds maximum length of 10,000 characters".to_string());
+    }
+    crate::ai::engine::assistant_chat(&state, conversation_id, trimmed).await
+}
+
+#[tauri::command]
+pub fn assistant_get_conversations(
+    state: State<'_, DbState>,
+    limit: Option<u32>,
+) -> Result<Vec<crate::db::repository::Conversation>, String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    crate::db::repository::get_conversations(&conn, limit.unwrap_or(25))
+}
+
+#[tauri::command]
+pub fn assistant_get_messages(
+    state: State<'_, DbState>,
+    conversation_id: i64,
+) -> Result<Vec<crate::db::repository::ConversationMessage>, String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    crate::db::repository::get_conversation_messages(&conn, conversation_id)
+}
+
+#[tauri::command]
+pub fn assistant_create_conversation(
+    state: State<'_, DbState>,
+    title: String,
+) -> Result<i64, String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let provider = crate::ai::client::get_active_provider(&conn);
+    let model = crate::ai::client::get_provider_model(&conn, provider);
+    crate::db::repository::create_conversation(&conn, &title, provider.as_str(), &model)
+}
+
+#[tauri::command]
+pub fn assistant_delete_conversation(
+    state: State<'_, DbState>,
+    conversation_id: i64,
+) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    crate::db::repository::delete_conversation(&conn, conversation_id)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finance Intelligence Commands
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn finance_get_config(
+    state: State<'_, DbState>,
+) -> Result<crate::finance::FinanceConfig, String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    Ok(crate::finance::get_finance_config(&conn))
+}
+
+#[tauri::command]
+pub fn finance_save_config(
+    state: State<'_, DbState>,
+    api_key: Option<String>,
+    provider: Option<String>,
+) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    crate::finance::save_finance_config(&conn, api_key, provider)
+}
+
+#[tauri::command]
+pub async fn finance_get_quote(
+    state: State<'_, DbState>,
+    symbol: String,
+) -> Result<crate::finance::StockQuote, String> {
+    let sym = symbol.trim().to_uppercase();
+    if sym.is_empty() || sym.len() > 16 {
+        return Err("Symbol must be between 1 and 16 characters".to_string());
+    }
+    let api_key = {
+        let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        crate::finance::client::get_finnhub_key(&conn)
+    };
+    crate::finance::get_quote(api_key.as_deref(), &sym).await
+}
+
+#[tauri::command]
+pub async fn finance_get_watchlist_quotes(
+    state: State<'_, DbState>,
+    symbols: Option<Vec<String>>,
+) -> Result<Vec<crate::finance::StockQuote>, String> {
+    let (api_key, watchlist) = {
+        let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let key = crate::finance::client::get_finnhub_key(&conn);
+        let list = symbols.unwrap_or_else(|| {
+            let cfg = crate::finance::get_finance_config(&conn);
+            cfg.watchlist
+        });
+        (key, list)
+    };
+    crate::finance::get_watchlist_quotes(api_key.as_deref(), &watchlist).await
+}
+
+#[tauri::command]
+pub fn finance_save_watchlist(
+    state: State<'_, DbState>,
+    symbols: Vec<String>,
+) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    crate::finance::save_watchlist(&conn, &symbols)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Desktop Notification Commands
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn notification_get_preferences(
+    state: State<'_, DbState>,
+) -> Result<crate::notifications::NotificationPreferences, String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    Ok(crate::notifications::get_notification_preferences(&conn))
+}
+
+#[tauri::command]
+pub fn notification_save_preferences(
+    state: State<'_, DbState>,
+    preferences: crate::notifications::NotificationPreferences,
+) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    crate::notifications::save_notification_preferences(&conn, &preferences)
+}
+
+#[tauri::command]
+pub fn notification_send(
+    app: tauri::AppHandle,
+    state: State<'_, DbState>,
+    title: String,
+    body: String,
+    topic: String,
+    force: Option<bool>,
+) -> Result<bool, String> {
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    crate::notifications::dispatch_notification(&app, &conn, &title, &body, &topic, force.unwrap_or(false))
 }
 
 #[tauri::command]
@@ -350,5 +572,61 @@ pub async fn ai_ask_question(
     question: String,
     story_context: Option<String>,
 ) -> Result<crate::ai::AiAnswer, String> {
-    crate::ai::ask_question(&state, &question, story_context.as_deref()).await
+    let trimmed = question.trim();
+    if trimmed.is_empty() {
+        return Err("Question cannot be empty".to_string());
+    }
+    if trimmed.len() > 2000 {
+        return Err("Question exceeds maximum length of 2,000 characters".to_string());
+    }
+    crate::ai::ask_question(&state, trimmed, story_context.as_deref()).await
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Database & Storage Management Commands
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn db_get_storage_breakdown(
+    app: tauri::AppHandle,
+    state: State<'_, DbState>,
+) -> Result<StorageBreakdown, String> {
+    let db_path = crate::db::connection::resolve_db_path(&app)?;
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    get_storage_breakdown(&conn, &db_path)
+}
+
+#[tauri::command]
+pub fn db_clear_temporary_cache(
+    app: tauri::AppHandle,
+    state: State<'_, DbState>,
+) -> Result<CleanupResult, String> {
+    let db_path = crate::db::connection::resolve_db_path(&app)?;
+    let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    clear_temporary_cache(&conn, &db_path)
+}
+
+#[tauri::command]
+pub fn db_backup_database(
+    app: tauri::AppHandle,
+    state: State<'_, DbState>,
+    dest_path: Option<String>,
+) -> Result<String, String> {
+    let db_path = crate::db::connection::resolve_db_path(&app)?;
+    let mut conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    backup_database(&mut conn, &db_path, dest_path.as_deref())
+}
+
+#[tauri::command]
+pub fn db_restore_database(
+    state: State<'_, DbState>,
+    backup_file_path: String,
+) -> Result<(), String> {
+    let trimmed = backup_file_path.trim();
+    if trimmed.is_empty() {
+        return Err("Backup file path cannot be empty".to_string());
+    }
+    let mut conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    restore_database(&mut conn, trimmed)
+}
+

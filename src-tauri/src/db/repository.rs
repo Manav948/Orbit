@@ -1077,3 +1077,426 @@ pub fn get_db_stats(conn: &Connection) -> Result<serde_json::Value, String> {
         "category_preferences": prefs_count,
     }))
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Conversations & Assistant Messages
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Conversation {
+    pub id: i64,
+    pub title: String,
+    pub provider: String,
+    pub model: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationMessage {
+    pub id: i64,
+    pub conversation_id: i64,
+    pub role: String,
+    pub content: String,
+    pub sources_json: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+pub struct NotificationLog {
+    pub id: i64,
+    pub topic: String,
+    pub title: String,
+    pub body: String,
+    pub sent_at: String,
+}
+
+pub fn create_conversation(
+    conn: &Connection,
+    title: &str,
+    provider: &str,
+    model: &str,
+) -> Result<i64, String> {
+    conn.execute(
+        "INSERT INTO conversations (title, provider, model, created_at, updated_at)
+         VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+        params![title, provider, model],
+    )
+    .map_err(|e| format!("Failed to create conversation: {e}"))?;
+
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn get_conversations(conn: &Connection, limit: u32) -> Result<Vec<Conversation>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, title, provider, model, created_at, updated_at
+             FROM conversations
+             ORDER BY updated_at DESC
+             LIMIT ?1",
+        )
+        .map_err(|e| format!("Failed to prepare get_conversations: {e}"))?;
+
+    let rows = stmt
+        .query_map(params![limit], |row| {
+            Ok(Conversation {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                provider: row.get(2)?,
+                model: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query conversations: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect conversations: {e}"))?;
+
+    Ok(rows)
+}
+
+pub fn get_conversation(conn: &Connection, id: i64) -> Result<Option<Conversation>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, title, provider, model, created_at, updated_at
+             FROM conversations
+             WHERE id = ?1",
+        )
+        .map_err(|e| format!("Failed to prepare get_conversation: {e}"))?;
+
+    let mut rows = stmt
+        .query_map(params![id], |row| {
+            Ok(Conversation {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                provider: row.get(2)?,
+                model: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query conversation: {e}"))?;
+
+    if let Some(first) = rows.next() {
+        first.map(Some).map_err(|e| format!("Row read error: {e}"))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn delete_conversation(conn: &Connection, id: i64) -> Result<(), String> {
+    conn.execute("DELETE FROM conversations WHERE id = ?1", params![id])
+        .map_err(|e| format!("Failed to delete conversation: {e}"))?;
+    Ok(())
+}
+
+pub fn add_conversation_message(
+    conn: &Connection,
+    conversation_id: i64,
+    role: &str,
+    content: &str,
+    sources_json: Option<&str>,
+) -> Result<i64, String> {
+    conn.execute(
+        "INSERT INTO conversation_messages (conversation_id, role, content, sources_json, created_at)
+         VALUES (?1, ?2, ?3, ?4, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+        params![conversation_id, role, content, sources_json],
+    )
+    .map_err(|e| format!("Failed to add conversation message: {e}"))?;
+
+    let msg_id = conn.last_insert_rowid();
+
+    // Update conversation updated_at timestamp
+    let _ = conn.execute(
+        "UPDATE conversations SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?1",
+        params![conversation_id],
+    );
+
+    Ok(msg_id)
+}
+
+pub fn get_conversation_messages(
+    conn: &Connection,
+    conversation_id: i64,
+) -> Result<Vec<ConversationMessage>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, conversation_id, role, content, sources_json, created_at
+             FROM conversation_messages
+             WHERE conversation_id = ?1
+             ORDER BY id ASC",
+        )
+        .map_err(|e| format!("Failed to prepare get_conversation_messages: {e}"))?;
+
+    let rows = stmt
+        .query_map(params![conversation_id], |row| {
+            Ok(ConversationMessage {
+                id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                sources_json: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query conversation messages: {e}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to collect conversation messages: {e}"))?;
+
+    Ok(rows)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notification Duplicate & Quiet Hours Check
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub fn can_send_notification(
+    conn: &Connection,
+    topic: &str,
+    title: &str,
+    min_interval_secs: i64,
+) -> Result<bool, String> {
+    // 1. Check if notifications are globally enabled
+    let notifs_enabled = get_setting(conn, "notifications_enabled")
+        .unwrap_or(Some("true".to_string()))
+        .unwrap_or_else(|| "true".to_string())
+        == "true";
+
+    if !notifs_enabled {
+        return Ok(false);
+    }
+
+    // 2. Check topic-specific toggle
+    let topic_key = format!("notifications_{topic}");
+    if let Ok(Some(val)) = get_setting(conn, &topic_key) {
+        if val == "false" {
+            return Ok(false);
+        }
+    }
+
+    // 3. Check quiet hours
+    let quiet_enabled = get_setting(conn, "quiet_hours_enabled")
+        .unwrap_or(Some("false".to_string()))
+        .unwrap_or_else(|| "false".to_string())
+        == "true";
+
+    if quiet_enabled {
+        let start_time = get_setting(conn, "quiet_hours_start")
+            .unwrap_or(Some("22:00".to_string()))
+            .unwrap_or_else(|| "22:00".to_string());
+        let end_time = get_setting(conn, "quiet_hours_end")
+            .unwrap_or(Some("08:00".to_string()))
+            .unwrap_or_else(|| "08:00".to_string());
+
+        // Parse HH:MM
+        let (now_h, now_m) = {
+            let now = chrono_like_now_hm();
+            now
+        };
+        let (start_h, start_m) = parse_hm(&start_time);
+        let (end_h, end_m) = parse_hm(&end_time);
+
+        let now_mins = now_h * 60 + now_m;
+        let start_mins = start_h * 60 + start_m;
+        let end_mins = end_h * 60 + end_m;
+
+        let in_quiet_hours = if start_mins <= end_mins {
+            now_mins >= start_mins && now_mins < end_mins
+        } else {
+            // Over midnight (e.g. 22:00 to 08:00)
+            now_mins >= start_mins || now_mins < end_mins
+        };
+
+        if in_quiet_hours {
+            return Ok(false);
+        }
+    }
+
+    // 4. Duplicate suppression: Check if same title and topic were sent within min_interval_secs
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM notification_logs
+             WHERE topic = ?1 AND title = ?2
+             AND (strftime('%s', 'now') - strftime('%s', sent_at)) < ?3",
+            params![topic, title, min_interval_secs],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    Ok(count == 0)
+}
+
+pub fn log_notification(
+    conn: &Connection,
+    topic: &str,
+    title: &str,
+    body: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO notification_logs (topic, title, body, sent_at)
+         VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+        params![topic, title, body],
+    )
+    .map_err(|e| format!("Failed to log notification: {e}"))?;
+    Ok(())
+}
+
+fn parse_hm(s: &str) -> (i64, i64) {
+    let mut parts = s.split(':');
+    let h = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+    let m = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+    (h, m)
+}
+
+fn chrono_like_now_hm() -> (i64, i64) {
+    // Read local or UTC time roughly using system time or fallback
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let day_secs = secs % 86400;
+    let hours = (day_secs / 3600) as i64;
+    let mins = ((day_secs % 3600) / 60) as i64;
+    (hours, mins)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Storage Breakdown & Cache Management
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageBreakdown {
+    pub db_path: String,
+    pub file_size_bytes: u64,
+    pub file_size_mb: f64,
+    pub article_count: i64,
+    pub briefing_count: i64,
+    pub conversation_count: i64,
+    pub message_count: i64,
+    pub notification_count: i64,
+    pub source_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanupResult {
+    pub deleted_articles: usize,
+    pub deleted_notifications: usize,
+    pub freed_bytes: i64,
+}
+
+pub fn get_storage_breakdown(conn: &Connection, db_path: &std::path::Path) -> Result<StorageBreakdown, String> {
+    let file_size_bytes = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
+    let file_size_mb = (file_size_bytes as f64 / (1024.0 * 1024.0) * 100.0).round() / 100.0;
+
+    let article_count: i64 = conn.query_row("SELECT COUNT(*) FROM articles", [], |r| r.get(0)).unwrap_or(0);
+    let briefing_count: i64 = conn.query_row("SELECT COUNT(*) FROM briefings", [], |r| r.get(0)).unwrap_or(0);
+    let conversation_count: i64 = conn.query_row("SELECT COUNT(*) FROM conversations", [], |r| r.get(0)).unwrap_or(0);
+    let message_count: i64 = conn.query_row("SELECT COUNT(*) FROM conversation_messages", [], |r| r.get(0)).unwrap_or(0);
+    let notification_count: i64 = conn.query_row("SELECT COUNT(*) FROM notification_logs", [], |r| r.get(0)).unwrap_or(0);
+    let source_count: i64 = conn.query_row("SELECT COUNT(*) FROM news_sources", [], |r| r.get(0)).unwrap_or(0);
+
+    Ok(StorageBreakdown {
+        db_path: db_path.display().to_string(),
+        file_size_bytes,
+        file_size_mb,
+        article_count,
+        briefing_count,
+        conversation_count,
+        message_count,
+        notification_count,
+        source_count,
+    })
+}
+
+pub fn clear_temporary_cache(conn: &Connection, db_path: &std::path::Path) -> Result<CleanupResult, String> {
+    let size_before = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
+
+    let deleted_articles = conn.execute(
+        "DELETE FROM articles WHERE fetched_at < datetime('now', '-14 days')",
+        [],
+    ).map_err(|e| format!("Failed to prune old articles: {e}"))?;
+
+    let deleted_notifications = conn.execute(
+        "DELETE FROM notification_logs WHERE sent_at < datetime('now', '-7 days')",
+        [],
+    ).map_err(|e| format!("Failed to prune old notifications: {e}"))?;
+
+    // Vacuum database to reclaim unused disk space
+    conn.execute_batch("VACUUM;").map_err(|e| format!("Failed to vacuum database: {e}"))?;
+
+    let size_after = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
+    let freed_bytes = (size_before as i64) - (size_after as i64);
+
+    Ok(CleanupResult {
+        deleted_articles,
+        deleted_notifications,
+        freed_bytes: if freed_bytes > 0 { freed_bytes } else { 0 },
+    })
+}
+
+pub fn backup_database(
+    conn: &mut Connection,
+    source_path: &std::path::Path,
+    dest_path_override: Option<&str>,
+) -> Result<String, String> {
+    let backup_dir = match dest_path_override {
+        Some(p) if !p.trim().is_empty() => std::path::PathBuf::from(p.trim()),
+        _ => source_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from(".")),
+    };
+
+    if !backup_dir.exists() {
+        let _ = std::fs::create_dir_all(&backup_dir);
+    }
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let backup_filename = format!("nexora_backup_{timestamp}.db");
+    let dest_file = backup_dir.join(&backup_filename);
+
+    let mut dest_conn = Connection::open(&dest_file)
+        .map_err(|e| format!("Failed to create backup destination database: {e}"))?;
+
+    let backup = rusqlite::backup::Backup::new(conn, &mut dest_conn)
+        .map_err(|e| format!("Failed to initialize SQLite online backup: {e}"))?;
+
+    backup.run_to_completion(100, std::time::Duration::from_millis(50), None)
+        .map_err(|e| format!("Failed to execute SQLite backup: {e}"))?;
+
+    Ok(dest_file.display().to_string())
+}
+
+pub fn restore_database(
+    conn: &mut Connection,
+    backup_file_path: &str,
+) -> Result<(), String> {
+    let b_path = std::path::Path::new(backup_file_path);
+    if !b_path.exists() {
+        return Err(format!("Backup file does not exist: {backup_file_path}"));
+    }
+
+    let backup_conn = Connection::open(b_path)
+        .map_err(|e| format!("Cannot open backup file: {e}"))?;
+
+    let check: Result<String, _> = backup_conn.query_row("PRAGMA quick_check", [], |r| r.get(0));
+    match check {
+        Ok(ref s) if s == "ok" => {},
+        _ => return Err("The selected backup file is corrupted or not a valid SQLite database.".to_string()),
+    }
+
+    {
+        let backup = rusqlite::backup::Backup::new(&backup_conn, conn)
+            .map_err(|e| format!("Failed to initialize restore backup process: {e}"))?;
+
+        backup.run_to_completion(100, std::time::Duration::from_millis(50), None)
+            .map_err(|e| format!("Failed to restore database from backup: {e}"))?;
+    }
+    drop(backup_conn);
+
+    crate::db::connection::configure_pragmas(conn)?;
+
+    Ok(())
+}

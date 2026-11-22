@@ -1,22 +1,29 @@
 mod ai;
 mod commands;
 mod db;
+mod finance;
 mod news;
+mod notifications;
 
 use commands::db_commands::{
-    ai_ask_question, ai_generate_briefing, ai_get_briefings, ai_get_config, ai_get_stories,
-    ai_process_news, ai_save_config, ai_test_connection, db_add_news_source, db_delete_news_source,
-    db_delete_setting, db_get_all_settings, db_get_articles, db_get_articles_paginated,
-    db_get_briefings_by_category, db_get_category_preferences, db_get_latest_briefings,
-    db_get_news_sources, db_get_publishers, db_get_setting, db_get_stats, db_insert_articles, db_prune_old_articles,
-    db_set_news_source_enabled, db_sync_news_feeds, db_upsert_briefing,
-    db_upsert_category_preference, db_upsert_setting,
+    ai_ask_question, ai_generate_briefing, ai_get_briefings, ai_get_config, ai_get_providers_config,
+    ai_get_stories, ai_process_news, ai_save_config, ai_save_provider_config, ai_test_connection,
+    ai_test_provider_connection, assistant_create_conversation, assistant_delete_conversation,
+    assistant_get_conversations, assistant_get_messages, assistant_send_message, db_add_news_source,
+    db_backup_database, db_clear_temporary_cache, db_delete_news_source, db_delete_setting,
+    db_get_all_settings, db_get_articles, db_get_articles_paginated, db_get_briefings_by_category,
+    db_get_category_preferences, db_get_latest_briefings, db_get_news_sources, db_get_publishers,
+    db_get_setting, db_get_stats, db_get_storage_breakdown, db_insert_articles,
+    db_prune_old_articles, db_restore_database, db_set_news_source_enabled, db_sync_news_feeds,
+    db_upsert_briefing, db_upsert_category_preference, db_upsert_setting, finance_get_config,
+    finance_get_quote, finance_get_watchlist_quotes, finance_save_config, finance_save_watchlist,
+    notification_get_preferences, notification_save_preferences, notification_send,
 };
 use commands::system::{
     get_app_status, get_preferences, get_system_info, get_window_geometry, hide_window,
     is_shortcut_registered, load_preferences_internal, ping, position_window_top_center,
     register_shortcut, save_preferences, set_island_geometry, set_launch_at_startup, show_window,
-    update_global_shortcut,
+    system_get_process_metrics, update_global_shortcut,
 };
 use db::connection::init_db;
 use std::str::FromStr;
@@ -70,6 +77,7 @@ pub fn run() {
         // ── Plugins ───────────────────────────────────────────────────────────
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             open_island(app);
         }))
@@ -119,18 +127,18 @@ pub fn run() {
 
             // ── 5. Build system-tray menu ──────────────────────────────────────
             let open_item =
-                MenuItem::with_id(app, "open", "Open Orbit", true, None::<&str>)?;
+                MenuItem::with_id(app, "open", "Open Nexora", true, None::<&str>)?;
             let settings_item =
                 MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let separator = tauri::menu::PredefinedMenuItem::separator(app)?;
             let quit_item =
-                MenuItem::with_id(app, "quit", "Exit Orbit", true, None::<&str>)?;
+                MenuItem::with_id(app, "quit", "Exit Nexora", true, None::<&str>)?;
 
             let menu = Menu::with_items(app, &[&open_item, &settings_item, &separator, &quit_item])?;
 
             // ── 6. Build tray icon ─────────────────────────────────────────────
             TrayIconBuilder::new()
-                .tooltip("Orbit Dynamic Island — Alt+Space")
+                .tooltip("Nexora Dynamic Island — Alt+Space")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -243,14 +251,40 @@ pub fn run() {
             db_get_stats,
             // AI Intelligence commands
             ai_get_config,
+            ai_get_providers_config,
             ai_save_config,
+            ai_save_provider_config,
             ai_test_connection,
+            ai_test_provider_connection,
             ai_process_news,
             ai_get_stories,
             ai_generate_briefing,
             ai_get_briefings,
             ai_ask_question,
+            // Conversational Assistant commands
+            assistant_send_message,
+            assistant_get_conversations,
+            assistant_get_messages,
+            assistant_create_conversation,
+            assistant_delete_conversation,
+            // Finance Intelligence commands
+            finance_get_config,
+            finance_save_config,
+            finance_get_quote,
+            finance_get_watchlist_quotes,
+            finance_save_watchlist,
+            // Desktop Notification commands
+            notification_get_preferences,
+            notification_save_preferences,
+            notification_send,
+            // Database & Storage Management commands
+            db_get_storage_breakdown,
+            db_clear_temporary_cache,
+            db_backup_database,
+            db_restore_database,
+            // Process Telemetry
+            system_get_process_metrics,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Orbit application");
+        .expect("error while running Nexora application");
 }

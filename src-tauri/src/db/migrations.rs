@@ -191,6 +191,60 @@ static MIGRATIONS: &[(u32, &str, &str)] = &[
             ('briefing_length', 'standard');
         ",
     ),
+    (
+        6,
+        "conversations, finance watchlist, and notification logs",
+        "
+        -- ── conversational assistant tables ──────────────────────────────────
+        CREATE TABLE IF NOT EXISTS conversations (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            title      TEXT    NOT NULL,
+            provider   TEXT    NOT NULL DEFAULT 'openai',
+            model      TEXT    NOT NULL DEFAULT 'gpt-4o-mini',
+            created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations (updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS conversation_messages (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+            role            TEXT    NOT NULL,
+            content         TEXT    NOT NULL,
+            sources_json    TEXT,
+            created_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_conv_msgs_conv_id ON conversation_messages (conversation_id);
+
+        -- ── desktop notification audit logs ──────────────────────────────────
+        CREATE TABLE IF NOT EXISTS notification_logs (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            topic        TEXT    NOT NULL,
+            title        TEXT    NOT NULL,
+            body         TEXT    NOT NULL,
+            sent_at      TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_notif_logs_sent_at ON notification_logs (sent_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_notif_logs_topic   ON notification_logs (topic, sent_at DESC);
+
+        -- ── seed multi-provider, finance, and notification default settings ──
+        INSERT OR IGNORE INTO settings (key, value) VALUES
+            ('active_ai_provider', 'openai'),
+            ('groq_model', 'llama-3.3-70b-versatile'),
+            ('gemini_model', 'gemini-1.5-flash'),
+            ('finance_provider', 'finnhub'),
+            ('finance_watchlist', 'AAPL,MSFT,NVDA,GOOGL,TSLA'),
+            ('notifications_enabled', 'true'),
+            ('notifications_breaking', 'true'),
+            ('notifications_briefings', 'true'),
+            ('notifications_finance', 'false'),
+            ('quiet_hours_enabled', 'false'),
+            ('quiet_hours_start', '22:00'),
+            ('quiet_hours_end', '08:00'),
+            ('tts_rate', '1.0'),
+            ('tts_auto_speak', 'false');
+        ",
+    ),
 ];
 
 /// Applies any pending migrations to the database.
