@@ -44,14 +44,11 @@ export function usePreferences() {
 
     // 1. Theme application (dark / light / system)
     const applyTheme = (theme: ThemeMode) => {
-      if (theme === "system") {
-        const isSystemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-        root.classList.toggle("dark", isSystemDark);
-        root.dataset.theme = isSystemDark ? "dark" : "light";
-      } else {
-        root.classList.toggle("dark", theme === "dark");
-        root.dataset.theme = theme;
-      }
+      const isVisualDark = theme === "system"
+        ? window.matchMedia("(prefers-color-scheme: dark)").matches
+        : theme === "dark";
+      root.classList.toggle("dark", isVisualDark);
+      root.dataset.theme = isVisualDark ? "dark" : "light";
     };
 
     applyTheme(preferences.theme);

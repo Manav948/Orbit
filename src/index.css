@@ -300,9 +300,46 @@ html[data-theme="dark"] {
 }
 
 html[data-accent="amber"] { --primary: #f59e0b; --primary-foreground: #17120a; --ring: #f59e0b; --sidebar-primary: #f59e0b; --selected-accent: 245 158 11; }
-html[data-accent="cyber"] { --primary: #0ea5e9; --primary-foreground: #07131a; --ring: #0ea5e9; --sidebar-primary: #0ea5e9; --selected-accent: 14 165 233; }
-html[data-accent="emerald"] { --primary: #10b981; --primary-foreground: #071610; --ring: #10b981; --sidebar-primary: #10b981; --selected-accent: 16 185 129; }
-html[data-accent="violet"] { --primary: #8b5cf6; --primary-foreground: #110b1b; --ring: #8b5cf6; --sidebar-primary: #8b5cf6; --selected-accent: 139 92 246; }
+html[data-accent="cyber"] { --primary: #0ea5e9; --primary-foreground: #07131a; --ring: #0ea5e9; --sidebar-primary: #0ea5e9; --selected-accent: 14 165 233; --accent-text: #38bdf8; }
+html[data-accent="emerald"] { --primary: #10b981; --primary-foreground: #071610; --ring: #10b981; --sidebar-primary: #10b981; --selected-accent: 16 185 129; --accent-text: #34d399; }
+html[data-accent="violet"] { --primary: #8b5cf6; --primary-foreground: #110b1b; --ring: #8b5cf6; --sidebar-primary: #8b5cf6; --selected-accent: 139 92 246; --accent-text: #a78bfa; }
+html[data-accent="amber"] { --accent-text: #fbbf24; }
+
+html[data-theme="light"][data-accent="amber"] { --accent-text: #92400e; }
+html[data-theme="light"][data-accent="cyber"] { --accent-text: #075985; }
+html[data-theme="light"][data-accent="emerald"] { --accent-text: #047857; }
+html[data-theme="light"][data-accent="violet"] { --accent-text: #6d28d9; }
+
+/* Keep legacy gold highlight utilities tied to the selected accent palette. */
+html[data-accent] [class~="text-amber-200"],
+html[data-accent] [class~="text-amber-300"],
+html[data-accent] [class~="text-amber-400"],
+html[data-accent] [class~="text-amber-400/80"],
+html[data-accent] [class~="text-amber-400/90"],
+html[data-accent] [class~="text-amber-300/80"] { color: var(--accent-text); }
+html[data-accent] [class~="bg-amber-300"],
+html[data-accent] [class~="bg-amber-400"] { background-color: var(--primary); }
+html[data-accent] [class~="hover:bg-amber-300"]:hover { background-color: color-mix(in srgb, var(--primary) 86%, white); }
+html[data-accent] [class~="bg-amber-400/10"],
+html[data-accent] [class~="bg-amber-500/10"] { background-color: rgb(var(--selected-accent) / 10%); }
+html[data-accent] [class~="bg-amber-400/15"],
+html[data-accent] [class~="bg-amber-500/15"] { background-color: rgb(var(--selected-accent) / 15%); }
+html[data-accent] [class~="bg-amber-400/20"],
+html[data-accent] [class~="bg-amber-500/20"] { background-color: rgb(var(--selected-accent) / 20%); }
+html[data-accent] [class~="from-amber-500/10"] {
+  --tw-gradient-from: rgb(var(--selected-accent) / 10%) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--selected-accent) / 0%) var(--tw-gradient-to-position);
+}
+html[data-accent] [class~="via-amber-500/[0.05]"] { --tw-gradient-via: rgb(var(--selected-accent) / 5%); }
+html[data-accent] [class~="shadow-amber-500/10"] { --tw-shadow-color: rgb(var(--selected-accent) / 10%); }
+html[data-accent] [class~="ring-amber-500/50"] { --tw-ring-color: rgb(var(--selected-accent) / 50%); }
+html[data-accent] [class~="border-amber-400/20"],
+html[data-accent] [class~="border-amber-500/20"],
+html[data-accent] [class~="border-amber-400/30"],
+html[data-accent] [class~="border-amber-500/30"],
+html[data-accent] [class~="border-amber-400/40"],
+html[data-accent] [class~="border-amber-500/40"] { border-color: color-mix(in srgb, var(--primary) 38%, transparent); }
+html[data-accent] [class~="hover:border-amber-500/40"]:hover { border-color: color-mix(in srgb, var(--primary) 55%, transparent); }
 
 html[data-theme="dark"] [class~="bg-black/95"],
 html[data-theme="dark"] [class~="bg-black/60"],
@@ -328,3 +365,144 @@ html[data-accent] [class~="text-sky-500"] { color: var(--primary); }
 html[data-accent] [class~="border-sky-500/60"],
 html[data-accent] [class~="focus:border-sky-500"]:focus { border-color: var(--primary); }
 html[data-accent] [class~="ring-sky-500/30"] { --tw-ring-color: color-mix(in srgb, var(--primary) 30%, transparent); }
+
+/* Accent palettes never recolor primary controls. Keep action buttons
+   monochrome and reserve the chosen palette for accentable navigation and icons. */
+html[data-accent] {
+  --primary: #18181b;
+  --primary-foreground: #fafafa;
+  --ring: #71717a;
+}
+html[data-theme="dark"][data-accent] {
+  --primary: #f4f4f5;
+  --primary-foreground: #09090b;
+  --ring: #a1a1aa;
+}
+html[data-accent="neutral"] { --selected-accent: 24 24 27; --accent-text: #18181b; }
+html[data-theme="dark"][data-accent="neutral"] { --selected-accent: 244 244 245; --accent-text: #f4f4f5; }
+
+html[data-theme="light"] [data-monochrome-active="true"],
+html[data-theme="light"] [data-monochrome-active="true"]:hover {
+  background-color: #18181b !important;
+  border-color: #18181b !important;
+  color: #fafafa !important;
+}
+html[data-theme="dark"] [data-monochrome-active="true"],
+html[data-theme="dark"] [data-monochrome-active="true"]:hover {
+  background-color: #f4f4f5 !important;
+  border-color: #f4f4f5 !important;
+  color: #09090b !important;
+}
+
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-amber-"],
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-sky-"],
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-blue-"],
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-emerald-"],
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-violet-"],
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-indigo-"] {
+  background-color: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+}
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-amber-"]:hover,
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-sky-"]:hover,
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-blue-"]:hover,
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-emerald-"]:hover,
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-violet-"]:hover,
+html[data-accent] button[data-slot="button"]:not([data-accentable="true"])[class*="bg-indigo-"]:hover {
+  filter: brightness(0.92);
+}
+
+/* Monochrome is the default across badges and labels; palette color appears
+   on small icons and explicitly accentable selection controls only. */
+html[data-accent="neutral"] [class*="text-amber-"],
+html[data-accent="neutral"] [class*="text-sky-"],
+html[data-accent="neutral"] [class*="text-blue-"],
+html[data-accent="neutral"] [class*="text-emerald-"],
+html[data-accent="neutral"] [class*="text-violet-"],
+html[data-accent="neutral"] [class*="text-indigo-"],
+html[data-accent="neutral"] [class*="text-cyan-"] { color: var(--foreground) !important; }
+
+html[data-accent="neutral"] [class*="bg-amber-"],
+html[data-accent="neutral"] [class*="bg-sky-"],
+html[data-accent="neutral"] [class*="bg-blue-"],
+html[data-accent="neutral"] [class*="bg-emerald-"],
+html[data-accent="neutral"] [class*="bg-violet-"],
+html[data-accent="neutral"] [class*="bg-indigo-"],
+html[data-accent="neutral"] [class*="bg-cyan-"] {
+  background-color: color-mix(in srgb, var(--foreground) 10%, transparent) !important;
+}
+html[data-accent="neutral"] [class*="border-amber-"],
+html[data-accent="neutral"] [class*="border-sky-"],
+html[data-accent="neutral"] [class*="border-blue-"],
+html[data-accent="neutral"] [class*="border-emerald-"],
+html[data-accent="neutral"] [class*="border-violet-"],
+html[data-accent="neutral"] [class*="border-indigo-"],
+html[data-accent="neutral"] [class*="border-cyan-"] { border-color: color-mix(in srgb, var(--foreground) 18%, transparent) !important; }
+
+html[data-accent]:not([data-accent="neutral"]) svg[class*="text-amber-"],
+html[data-accent]:not([data-accent="neutral"]) svg[class*="text-sky-"],
+html[data-accent]:not([data-accent="neutral"]) svg[class*="text-blue-"],
+html[data-accent]:not([data-accent="neutral"]) svg[class*="text-emerald-"],
+html[data-accent]:not([data-accent="neutral"]) svg[class*="text-violet-"],
+html[data-accent]:not([data-accent="neutral"]) svg[class*="text-indigo-"],
+html[data-accent]:not([data-accent="neutral"]) svg[class*="text-cyan-"] { color: var(--accent-text) !important; }
+
+html[data-accent] [class*="text-amber-"]:not(svg):not([data-accentable="true"]),
+html[data-accent] [class*="text-sky-"]:not(svg):not([data-accentable="true"]),
+html[data-accent] [class*="text-blue-"]:not(svg):not([data-accentable="true"]),
+html[data-accent] [class*="text-emerald-"]:not(svg):not([data-accentable="true"]),
+html[data-accent] [class*="text-violet-"]:not(svg):not([data-accentable="true"]),
+html[data-accent] [class*="text-indigo-"]:not(svg):not([data-accentable="true"]),
+html[data-accent] [class*="text-cyan-"]:not(svg):not([data-accentable="true"]) { color: var(--foreground) !important; }
+html[data-accent] [data-accentable="true"] [class*="text-amber-"],
+html[data-accent] [data-accentable="true"] [class*="text-sky-"],
+html[data-accent] [data-accentable="true"] [class*="text-blue-"],
+html[data-accent] [data-accentable="true"] [class*="text-emerald-"],
+html[data-accent] [data-accentable="true"] [class*="text-violet-"],
+html[data-accent] [data-accentable="true"] [class*="text-indigo-"],
+html[data-accent] [data-accentable="true"] [class*="text-cyan-"],
+html[data-accent] [data-accentable="true"][class*="text-amber-"],
+html[data-accent] [data-accentable="true"][class*="text-sky-"],
+html[data-accent] [data-accentable="true"][class*="text-blue-"],
+html[data-accent] [data-accentable="true"][class*="text-emerald-"],
+html[data-accent] [data-accentable="true"][class*="text-violet-"],
+html[data-accent] [data-accentable="true"][class*="text-indigo-"],
+html[data-accent] [data-accentable="true"][class*="text-cyan-"] { color: var(--accent-text) !important; }
+html[data-accent="neutral"] svg[class*="text-amber-"],
+html[data-accent="neutral"] svg[class*="text-sky-"],
+html[data-accent="neutral"] svg[class*="text-blue-"],
+html[data-accent="neutral"] svg[class*="text-emerald-"],
+html[data-accent="neutral"] svg[class*="text-violet-"],
+html[data-accent="neutral"] svg[class*="text-indigo-"],
+html[data-accent="neutral"] svg[class*="text-cyan-"] { color: currentColor !important; }
+
+html[data-accent] :not(button):not([data-accentable="true"])[class*="bg-amber-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="bg-sky-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="bg-blue-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="bg-emerald-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="bg-violet-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="bg-indigo-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="bg-cyan-"] {
+  background-color: color-mix(in srgb, var(--foreground) 10%, transparent) !important;
+}
+html[data-accent] :not(button):not([data-accentable="true"])[class*="border-amber-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="border-sky-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="border-blue-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="border-emerald-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="border-violet-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="border-indigo-"],
+html[data-accent] :not(button):not([data-accentable="true"])[class*="border-cyan-"] {
+  border-color: color-mix(in srgb, var(--foreground) 18%, transparent) !important;
+}
+html[data-accent] :not([data-accentable="true"])[class*="from-amber-"],
+html[data-accent] :not([data-accentable="true"])[class*="from-sky-"],
+html[data-accent] :not([data-accentable="true"])[class*="from-emerald-"],
+html[data-accent] :not([data-accentable="true"])[class*="from-violet-"] {
+  --tw-gradient-from: color-mix(in srgb, var(--foreground) 8%, transparent) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: color-mix(in srgb, var(--foreground) 0%, transparent) var(--tw-gradient-to-position) !important;
+}
+html[data-accent] [data-sidebar-icon] svg { color: currentColor !important; }
+html[data-accent]:not([data-accent="neutral"]) [data-sidebar-icon][data-accentable="true"] svg {
+  color: var(--accent-text) !important;
+}

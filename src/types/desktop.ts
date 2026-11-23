@@ -41,7 +41,7 @@ export type CategoryId =
   | "science";
 
 export type ThemeMode = "dark" | "light" | "system";
-export type AccentColor = "amber" | "cyber" | "emerald" | "violet";
+export type AccentColor = "neutral" | "amber" | "cyber" | "emerald" | "violet";
 export type CloseBehavior = "tray" | "minimize" | "exit";
 
 export interface CategoriesPreferences {
@@ -86,7 +86,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   auto_check_updates: true,
 
   theme: "dark",
-  accent_color: "amber",
+  accent_color: "neutral",
   island_scale: 100,
   enable_animations: true,
   glass_blur: "strong",

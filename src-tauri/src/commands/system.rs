@@ -56,7 +56,7 @@ pub struct UserPreferences {
     pub auto_check_updates: bool,
 
     pub theme: String, // "dark" | "light" | "system"
-    pub accent_color: String, // "amber" | "cyber" | "emerald" | "violet"
+    pub accent_color: String, // "neutral" | "amber" | "cyber" | "emerald" | "violet"
     pub island_scale: u32, // 80 to 120
     pub enable_animations: bool,
     pub glass_blur: String, // "light" | "medium" | "strong"
@@ -76,7 +76,7 @@ impl Default for UserPreferences {
             close_behavior: "tray".to_string(),
             auto_check_updates: true,
             theme: "dark".to_string(),
-            accent_color: "amber".to_string(),
+            accent_color: "neutral".to_string(),
             island_scale: 100,
             enable_animations: true,
             glass_blur: "strong".to_string(),

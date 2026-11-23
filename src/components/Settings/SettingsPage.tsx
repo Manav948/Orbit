@@ -708,12 +708,17 @@ export function SettingsPage({
                     key={item.id}
                     variant="ghost"
                     onClick={() => setActiveTab(item.id)}
+                    data-monochrome-active={active ? "true" : undefined}
                     className={`w-full flex items-center justify-start gap-2.5 h-7 px-2.5 text-xs rounded-xl transition-all cursor-pointer ${active
-                        ? "!bg-white hover:!bg-white text-neutral-950 font-semibold shadow-xs"
-                        : "text-neutral-400 hover:text-white hover:bg-white/[0.04]"
+                        ? "border border-current bg-black text-white dark:bg-white dark:text-black font-semibold shadow-xs"
+                        : "text-neutral-400 hover:text-white hover:bg-white/[0.08] hover:ring-1 hover:ring-white/[0.12]"
                       }`}
                   >
-                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center ${active ? "text-neutral-950" : "text-neutral-400"}`}>
+                    <span
+                      data-sidebar-icon="true"
+                      data-accentable={active && accent.id !== "neutral" ? "true" : undefined}
+                      className={`flex h-4 w-4 shrink-0 items-center justify-center ${active ? accent.id === "neutral" ? "text-white dark:text-black" : accent.textLight : "text-neutral-400"}`}
+                    >
                       {item.icon}
                     </span>
                     <span className="truncate text-left">{item.label}</span>
@@ -830,10 +835,11 @@ export function SettingsPage({
                       <Button
                         key={th.id}
                         type="button"
+                        data-monochrome-active={preferences.theme === th.id ? "true" : undefined}
                         variant={preferences.theme === th.id ? "secondary" : "outline"}
                         onClick={() => onSetTheme(th.id as ThemeMode)}
                         className={`h-8 justify-center px-3 text-xs gap-2 rounded-xl ${preferences.theme === th.id
-                            ? `${accent.bgSubtle} border ${accent.borderSubtle} ${accent.textLight} font-semibold`
+                            ? "font-semibold"
                             : "bg-black/30 border-white/[0.06] text-neutral-400"
                           }`}
                       >
@@ -854,6 +860,7 @@ export function SettingsPage({
                         <Button
                           key={colKey}
                           type="button"
+                          data-accentable={isSelected && colKey !== "neutral" ? "true" : undefined}
                           variant={isSelected ? "secondary" : "outline"}
                           onClick={() => onSetAccentColor(colKey)}
                           className={`h-9 justify-start px-3 text-xs gap-2.5 rounded-xl cursor-pointer ${isSelected

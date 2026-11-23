@@ -582,10 +582,7 @@ pub async fn assistant_chat(
         }
     } else {
         (
-            format!(
-                "**Nexora Assistant (Local Mode):**\n\nI received your query: *\"{}\"*\n\nTo enable conversational responses from **Groq, OpenAI, or Google Gemini**, please configure your API key in **Settings > AI Configuration**.",
-                msg_trimmed
-            ),
+            "Connect an AI provider in Settings AI Configuration to get an answer.".to_string(),
             "local-preview".to_string(),
         )
     };

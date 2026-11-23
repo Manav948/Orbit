@@ -18,9 +18,25 @@ export interface AccentThemeConfig {
 }
 
 export const ACCENT_THEMES: Record<AccentColor, AccentThemeConfig> = {
+  neutral: {
+    id: "neutral",
+    name: "Monochrome",
+    paletteLabel: "Black & White",
+    dot: "bg-neutral-900 dark:bg-neutral-100",
+    text: "text-foreground",
+    textLight: "text-foreground",
+    bgSubtle: "bg-foreground/10",
+    bgActive: "bg-foreground/15",
+    borderSubtle: "border-foreground/20",
+    borderActive: "border-foreground/35",
+    hoverBorder: "hover:border-foreground/40",
+    glow: "shadow-foreground/10",
+    ring: "focus-within:ring-ring/30",
+    activeBadge: "bg-secondary text-secondary-foreground border-border",
+  },
   amber: {
     id: "amber",
-    name: "Obsidian Gold",
+    name: "Amber",
     paletteLabel: "Warm Amber",
     dot: "bg-amber-400",
     text: "text-amber-400",
@@ -84,7 +100,7 @@ export const ACCENT_THEMES: Record<AccentColor, AccentThemeConfig> = {
   },
 };
 
-export function getAccentConfig(color: AccentColor = "amber"): AccentThemeConfig {
-  return ACCENT_THEMES[color] ?? ACCENT_THEMES.amber;
+export function getAccentConfig(color: AccentColor = "neutral"): AccentThemeConfig {
+  return ACCENT_THEMES[color] ?? ACCENT_THEMES.neutral;
 }
 
