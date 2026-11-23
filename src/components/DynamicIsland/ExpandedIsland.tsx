@@ -148,7 +148,6 @@ export function ExpandedIsland({
   const [isLoadingStories, setIsLoadingStories] = useState(true);
   const [storiesError, setStoriesError] = useState<string | null>(null);
   const [isProcessingAi, setIsProcessingAi] = useState(false);
-  const [expandedStoryId, setExpandedStoryId] = useState<number | null>(null);
 
   // ── Daily Briefings ───────────────────────────────────────────────────────
   const [briefings, setBriefings] = useState<Briefing[]>([]);
@@ -215,10 +214,8 @@ export function ExpandedIsland({
         if (data.length === 0 && !forceRefresh) {
           const processed = await dbService.processNewsIntelligence(cat, 30, false);
           setStories(processed);
-          if (processed.length > 0) setExpandedStoryId(processed[0].cluster.id);
         } else {
           setStories(data);
-          if (data.length > 0 && expandedStoryId === null) setExpandedStoryId(data[0].cluster.id);
         }
       } catch (err) {
         setStoriesError(err instanceof Error ? err.message : "Failed to load AI story clusters.");
@@ -226,7 +223,7 @@ export function ExpandedIsland({
         setIsLoadingStories(false);
       }
     },
-    [newsFilter, searchQuery, sortMode, expandedStoryId]
+    [newsFilter, searchQuery, sortMode]
   );
 
   const loadArticles = useCallback(
@@ -608,8 +605,6 @@ export function ExpandedIsland({
     { id: "ai", label: "AI" },
     { id: "finance", label: "Finance" },
     { id: "business", label: "Business" },
-    { id: "science", label: "Science" },
-    { id: "cybersecurity", label: "Cyber" },
   ];
 
   const activeFiltersCount =
@@ -993,8 +988,8 @@ export function ExpandedIsland({
         ══════════════════════════════════════════════════════════════ */}
         {activeView === "intelligence" && (
           <div className="flex-1 flex flex-col min-h-0 space-y-2">
-            <div className="flex items-center justify-between shrink-0 pb-1 gap-2">
-              <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar">
+            <div className="flex items-center justify-between shrink-0 pb-1 gap-2 min-w-0">
+              <div className="flex min-w-0 flex-1 items-center space-x-1 overflow-x-auto no-scrollbar">
                 {filterTabs.map((tab) => {
                   const isSelected = newsFilter === tab.id;
                   return (
@@ -1015,37 +1010,35 @@ export function ExpandedIsland({
                 })}
               </div>
 
-              <div className="flex items-center space-x-1 shrink-0">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        onClick={() => setSortMode((prev) => (prev === "latest" ? "importance" : "latest"))}
-                        className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] rounded-lg border cursor-pointer transition-all ${
-                          sortMode === "importance"
-                            ? `${accent.bgSubtle} ${accent.textLight} ${accent.borderSubtle}`
-                            : "bg-white/[0.03] border-white/[0.06] text-neutral-400 hover:text-white"
-                        }`}
-                      />
-                    }
-                  >
-                    <ArrowDownUp className="w-2.5 h-2.5" />
-                    <span>{sortMode === "importance" ? "Impact" : "Latest"}</span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Toggle sort: Latest / Impact</TooltipContent>
-                </Tooltip>
-
-                <div className="flex items-center space-x-0.5 bg-black/40 p-0.5 rounded-lg border border-white/[0.06]">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <div role="group" aria-label="Story sorting and summary style" className="flex items-center gap-0.5 rounded-lg border border-white/[0.08] bg-black/40 p-0.5">
+                  {(["latest", "importance"] as SortMode[]).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={sortMode === mode}
+                      onClick={() => setSortMode(mode)}
+                      className={`flex h-5 items-center gap-1 rounded-md px-1.5 text-[9px] font-medium transition-colors cursor-pointer ${
+                        sortMode === mode
+                          ? `${accent.bgSubtle} ${accent.textLight} border ${accent.borderSubtle}`
+                          : "border border-transparent text-neutral-400 hover:text-neutral-100"
+                      }`}
+                    >
+                      {mode === "latest" ? <ArrowDownUp className="h-2.5 w-2.5" /> : null}
+                      <span>{mode === "latest" ? "Latest" : "Impact"}</span>
+                    </button>
+                  ))}
+                  <span aria-hidden="true" className="mx-0.5 h-3.5 w-px bg-white/10" />
                   {(["simple", "detailed", "decision"] as ExplanationMode[]).map((mode) => (
                     <button
                       key={mode}
                       type="button"
+                      aria-pressed={explanationMode === mode}
                       onClick={() => setExplanationMode(mode)}
-                      className={`px-2 py-0.5 text-[9px] rounded font-medium transition-all cursor-pointer ${
+                      className={`h-5 rounded-md px-1.5 text-[9px] font-medium transition-colors cursor-pointer ${
                         explanationMode === mode
                           ? `${accent.bgSubtle} ${accent.textLight} border ${accent.borderSubtle}`
-                          : "text-neutral-400 hover:text-white"
+                          : "border border-transparent text-neutral-400 hover:text-neutral-100"
                       }`}
                     >
                       {mode.charAt(0).toUpperCase() + mode.slice(1)}
@@ -1077,7 +1070,6 @@ export function ExpandedIsland({
                 </div>
               ) : stories.length > 0 ? (
                 stories.map(({ cluster, articles: clusterArticles }) => {
-                  const isExpanded = expandedStoryId === cluster.id;
                   const activeExplanation =
                     explanationMode === "simple"
                       ? cluster.simple_summary || cluster.what_happened
@@ -1088,7 +1080,7 @@ export function ExpandedIsland({
                   return (
                     <div
                       key={cluster.id}
-                      className="p-3.5 rounded-2xl bg-white/[0.02] hover:bg-white/[0.035] border border-white/[0.06] hover:border-white/[0.12] transition-all space-y-2"
+                      className="p-3.5 rounded-2xl bg-white/[0.025] hover:bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.14] transition-all space-y-2"
                     >
                       <div className="flex items-center justify-between text-[10px]">
                         <div className="flex items-center space-x-1.5">
@@ -1114,46 +1106,11 @@ export function ExpandedIsland({
                         <span className="text-neutral-500 text-[10px]">{formatTime(cluster.created_at)}</span>
                       </div>
 
-                      <h3 className="text-xs font-semibold text-white leading-snug">{cluster.title}</h3>
+                      <h3 className="text-sm font-semibold text-white leading-snug">{cluster.title}</h3>
 
-                      <div className="p-2.5 rounded-xl bg-black/40 border border-white/[0.05] space-y-1">
-                        <div className="flex items-center justify-between text-[9px] font-medium text-amber-300/90">
-                          <span className="uppercase tracking-wider">{explanationMode} Perspective</span>
-                          <span className="text-neutral-500 font-mono text-[8px]">{cluster.model_used}</span>
-                        </div>
-                        <p className="text-[11px] text-neutral-200 leading-relaxed">{activeExplanation}</p>
-                      </div>
-
-                      <div className="space-y-1 pt-0.5">
-                        <button
-                          type="button"
-                          onClick={() => setExpandedStoryId(isExpanded ? null : cluster.id)}
-                          className="w-full flex items-center justify-between text-[10px] text-neutral-400 hover:text-white py-0.5 cursor-pointer"
-                        >
-                          <span className="font-medium text-neutral-300">
-                            Deep 5-Point Verification Analysis
-                          </span>
-                          {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                        </button>
-
-                        {isExpanded && (
-                          <div className="grid grid-cols-1 gap-1.5 pt-1">
-                            {[
-                              { icon: "📌", label: "What happened?", text: cluster.what_happened },
-                              { icon: "🔍", label: "Why did it happen?", text: cluster.why_it_happened },
-                              { icon: "⚡", label: "Why does it matter?", text: cluster.why_it_matters },
-                              { icon: "🔭", label: "What happens next?", text: cluster.what_happens_next },
-                              { icon: "❓", label: "What is uncertain?", text: cluster.what_is_uncertain },
-                            ].map(({ icon, label, text }) => (
-                              <div key={label} className="p-2 rounded-xl bg-white/[0.02] border border-white/[0.04] space-y-0.5 text-[11px]">
-                                <span className="font-semibold text-white flex items-center gap-1">
-                                  <span>{icon} {label}</span>
-                                </span>
-                                <p className="text-neutral-300 text-[10px] leading-relaxed">{text}</p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
+                      <div className={`space-y-1 border-l-2 ${accent.borderSubtle} pl-3 py-0.5`}>
+                        <div className={`text-[10px] font-semibold uppercase tracking-wider ${accent.textLight}`}>Summary</div>
+                        <p className="text-[12px] text-neutral-200 leading-relaxed">{activeExplanation}</p>
                       </div>
 
                       <div className="pt-2 border-t border-white/[0.05] flex items-center justify-between text-[10px]">
