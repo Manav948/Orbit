@@ -280,3 +280,51 @@ html[data-theme="light"] [class~="border-emerald-500/30"],
 html[data-theme="light"] [class~="border-emerald-400/40"] { border-color: rgb(4 120 87 / 38%); }
 html[data-theme="light"] [class~="border-violet-500/30"],
 html[data-theme="light"] [class~="border-violet-400/40"] { border-color: rgb(109 40 217 / 38%); }
+
+/* Linux desktop inspired surfaces: neutral monochrome chrome with the
+   selected accent reserved for focus, selection, and primary actions. */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #090a0c;
+  --foreground: #f4f4f5;
+  --card: #111214;
+  --card-foreground: #f4f4f5;
+  --popover: #111214;
+  --popover-foreground: #f4f4f5;
+  --border: rgb(255 255 255 / 9%);
+  --input: rgb(255 255 255 / 12%);
+  --muted: #191a1d;
+  --muted-foreground: #a1a1aa;
+  --secondary: #202124;
+  --secondary-foreground: #f4f4f5;
+}
+
+html[data-accent="amber"] { --primary: #f59e0b; --primary-foreground: #17120a; --ring: #f59e0b; --sidebar-primary: #f59e0b; --selected-accent: 245 158 11; }
+html[data-accent="cyber"] { --primary: #0ea5e9; --primary-foreground: #07131a; --ring: #0ea5e9; --sidebar-primary: #0ea5e9; --selected-accent: 14 165 233; }
+html[data-accent="emerald"] { --primary: #10b981; --primary-foreground: #071610; --ring: #10b981; --sidebar-primary: #10b981; --selected-accent: 16 185 129; }
+html[data-accent="violet"] { --primary: #8b5cf6; --primary-foreground: #110b1b; --ring: #8b5cf6; --sidebar-primary: #8b5cf6; --selected-accent: 139 92 246; }
+
+html[data-theme="dark"] [class~="bg-black/95"],
+html[data-theme="dark"] [class~="bg-black/60"],
+html[data-theme="dark"] [class~="bg-black/50"],
+html[data-theme="dark"] [class~="bg-black/40"],
+html[data-theme="dark"] [class~="bg-black/30"] { background-color: #090a0c; }
+
+html[data-theme="dark"] [class~="bg-slate-900"],
+html[data-theme="dark"] [class~="bg-slate-900/90"] { background-color: #111214; }
+html[data-theme="dark"] [class~="text-slate-100"] { color: #f4f4f5; }
+html[data-theme="dark"] [class~="border-slate-700"],
+html[data-theme="dark"] [class~="border-slate-700/60"] { border-color: rgb(255 255 255 / 10%); }
+
+/* Shared shadcn controls inherit the selected accent automatically. */
+html[data-accent] [class~="bg-primary"] { background-color: var(--primary); }
+html[data-accent] [class~="text-primary"] { color: var(--primary); }
+html[data-accent] [class~="border-ring"] { border-color: var(--ring); }
+html[data-accent] [class~="bg-sky-600"],
+html[data-accent] [class~="bg-sky-500"] { background-color: rgb(var(--selected-accent)); }
+html[data-accent] [class~="hover:bg-sky-500"]:hover { background-color: color-mix(in srgb, var(--primary) 86%, white); }
+html[data-accent] [class~="text-sky-400"],
+html[data-accent] [class~="text-sky-500"] { color: var(--primary); }
+html[data-accent] [class~="border-sky-500/60"],
+html[data-accent] [class~="focus:border-sky-500"]:focus { border-color: var(--primary); }
+html[data-accent] [class~="ring-sky-500/30"] { --tw-ring-color: color-mix(in srgb, var(--primary) 30%, transparent); }

@@ -1109,7 +1109,6 @@ export function ExpandedIsland({
                       <h3 className="text-sm font-semibold text-white leading-snug">{cluster.title}</h3>
 
                       <div className={`space-y-1 border-l-2 ${accent.borderSubtle} pl-3 py-0.5`}>
-                        <div className={`text-[10px] font-semibold uppercase tracking-wider ${accent.textLight}`}>Summary</div>
                         <p className="text-[12px] text-neutral-200 leading-relaxed">{activeExplanation}</p>
                       </div>
 
@@ -1257,7 +1256,7 @@ export function ExpandedIsland({
                         className={`max-w-[85%] p-3 rounded-2xl text-xs leading-relaxed ${
                           isUser
                             ? "bg-white/[0.08] border border-white/[0.12] text-white rounded-br-sm"
-                            : "bg-[#0c0e15] border border-white/[0.06] text-neutral-200 rounded-bl-sm space-y-2"
+                            : "bg-card border border-border text-card-foreground rounded-bl-sm space-y-2"
                         }`}
                       >
                         <div className="whitespace-pre-wrap">{m.content}</div>
