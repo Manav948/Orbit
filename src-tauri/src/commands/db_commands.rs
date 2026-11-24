@@ -109,9 +109,16 @@ pub fn db_delete_news_source(
 
 #[tauri::command]
 pub async fn db_sync_news_feeds(
+    app: tauri::AppHandle,
     state: State<'_, DbState>,
 ) -> Result<SyncReport, String> {
-    crate::news::sync_all_feeds(&state).await
+    let report = crate::news::sync_all_feeds(&state).await?;
+
+    // If new articles were fetched, automatically trigger AI story clustering
+    // in the background (with cooldown) so AI Stories stays fresh without manual intervention.
+    crate::news::maybe_trigger_ai_processing(report.new_articles, app);
+
+    Ok(report)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

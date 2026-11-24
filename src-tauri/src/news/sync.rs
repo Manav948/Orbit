@@ -1,6 +1,7 @@
 //! Background & Manual Synchronization Engine.
 
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
@@ -9,6 +10,13 @@ use crate::db::repository::{
 };
 use crate::db::DbState;
 use crate::news::fetcher::{fetch_feed, FeedFetchResult, FetchedArticleItem};
+
+/// Minimum seconds between automatic AI re-processing after a sync.
+/// Prevents hammering the AI provider if the user syncs repeatedly.
+const AI_PROCESS_COOLDOWN_SECS: u64 = 60; // 1 minute cooldown
+
+/// Unix-second timestamp of the last time we kicked off automatic AI processing.
+static LAST_AI_PROCESS_TS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncReport {
@@ -137,6 +145,58 @@ pub async fn sync_all_feeds(db: &DbState) -> Result<SyncReport, String> {
         errors,
         timestamp: chrono_now(),
     })
+}
+
+/// Called by the sync command after a successful RSS sync.
+/// If new articles were inserted AND the AI cooldown has elapsed, spawns a background
+/// task that runs `process_news_intelligence` and emits `stories-refreshed` to the frontend.
+pub fn maybe_trigger_ai_processing(
+    inserted: u64,
+    app: tauri::AppHandle,
+) {
+    if inserted == 0 {
+        return; // Nothing new — no point re-running AI
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let last = LAST_AI_PROCESS_TS.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < AI_PROCESS_COOLDOWN_SECS {
+        eprintln!(
+            "[Nexora Sync] AI cooldown active ({} s remaining) — skipping auto AI process.",
+            AI_PROCESS_COOLDOWN_SECS.saturating_sub(now.saturating_sub(last))
+        );
+        return;
+    }
+
+    // Claim the slot
+    LAST_AI_PROCESS_TS.store(now, Ordering::Relaxed);
+
+    tokio::spawn(async move {
+        use tauri::{Emitter, Manager};
+        eprintln!("[Nexora Sync] {} new articles detected — running automatic AI story clustering...", inserted);
+        let db = app.state::<crate::db::DbState>();
+
+        // Re-process AI stories with force_refresh = true so new incoming news immediately becomes top stories
+        match crate::ai::process_news_intelligence(&db, None, 40, true).await {
+            Ok(stories) => {
+                eprintln!(
+                    "[Nexora Sync] Auto AI processing complete: {} story clusters ready.",
+                    stories.len()
+                );
+                // Notify the frontend so the AI Stories tab reloads automatically
+                let _ = app.emit("stories-refreshed", stories.len());
+            }
+            Err(e) => {
+                eprintln!("[Nexora Sync] Auto AI processing notice: {e}");
+                // Reset cooldown so the next sync can retry
+                LAST_AI_PROCESS_TS.store(0, Ordering::Relaxed);
+            }
+        }
+    });
 }
 
 fn map_to_new_article(source_id: i64, item: FetchedArticleItem) -> NewArticle {

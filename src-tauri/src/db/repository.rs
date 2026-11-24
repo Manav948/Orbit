@@ -876,8 +876,8 @@ pub fn get_story_clusters_with_articles(
     };
 
     let order_clause = match sort_by {
-        Some("latest") => "ORDER BY created_at DESC, importance_score DESC",
-        _ => "ORDER BY importance_score DESC, created_at DESC",
+        Some("importance") => "ORDER BY importance_score DESC, created_at DESC",
+        _ => "ORDER BY created_at DESC, importance_score DESC",
     };
 
     let sql = format!(

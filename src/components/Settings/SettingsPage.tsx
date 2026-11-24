@@ -650,7 +650,7 @@ export function SettingsPage({
   return (
     <Card
       onClick={(e) => e.stopPropagation()}
-      className="w-[780px] h-[560px] p-0 gap-0 bg-[#07080b]/98 border-white/[0.09] hover:border-white/[0.13] rounded-3xl overflow-hidden backdrop-blur-2xl transition-all duration-300 text-neutral-200 select-none ring-1 ring-white/[0.04] flex flex-col"
+      className="w-[780px] h-[560px] p-0 gap-0 bg-card border-white/[0.09] hover:border-white/[0.13] rounded-3xl overflow-hidden text-neutral-200 select-none ring-1 ring-white/[0.04] flex flex-col"
     >
       {/* ── Top Drag & Navigation Bar ──────────────────────────────────── */}
       <div
@@ -738,7 +738,7 @@ export function SettingsPage({
         </div>
 
         {/* Content Pane */}
-        <ScrollArea className="flex-1 min-w-0">
+        <ScrollArea className="flex-1 min-w-0 bg-background">
           <div className="min-h-full p-5">
 
             {/* ════════════════════════════════════════════════════════════ */}
@@ -974,7 +974,7 @@ export function SettingsPage({
                   ].map((c) => {
                     const isEnabled = preferences.categories[c.key as keyof CategoriesPreferences];
                     return (
-                      <Card key={c.key} className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between gap-3">
+                      <Card key={c.key} className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                         <div className="truncate">
                           <span className="text-xs font-semibold text-white block">{c.label}</span>
                           <span className="text-[10px] text-neutral-400 block truncate">{c.desc}</span>
@@ -1066,7 +1066,7 @@ export function SettingsPage({
                 </Card>
 
                 {/* Feed List */}
-                <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
                   {isLoadingSources ? (
                     <div className="h-20 flex items-center justify-center text-xs text-neutral-500">
                       Loading feeds...
@@ -1075,7 +1075,7 @@ export function SettingsPage({
                     sources.map((src) => (
                       <Card
                         key={src.id}
-                        className="p-2.5 bg-white/[0.02] border-white/[0.06] rounded-xl flex items-center justify-between gap-2"
+                        className="p-2.5 bg-white/[0.02] border-white/[0.06] rounded-xl flex flex-row items-center justify-between gap-2"
                       >
                         <div className="truncate flex-1">
                           <div className="flex items-center space-x-2">
@@ -1601,7 +1601,7 @@ export function SettingsPage({
                 </div>
 
                 <div className="space-y-2.5">
-                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between gap-3">
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <span className="text-xs font-semibold text-white block">Master Desktop Notifications</span>
                       <span className="text-[10px] text-neutral-400 block">
@@ -1614,7 +1614,7 @@ export function SettingsPage({
                     />
                   </Card>
 
-                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between gap-3">
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <span className="text-xs font-medium text-white block">Breaking News Alerts</span>
                       <span className="text-[10px] text-neutral-400 block">
@@ -1627,7 +1627,7 @@ export function SettingsPage({
                     />
                   </Card>
 
-                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between gap-3">
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <span className="text-xs font-medium text-white block">Daily Briefings Completed</span>
                       <span className="text-[10px] text-neutral-400 block">
@@ -1640,7 +1640,7 @@ export function SettingsPage({
                     />
                   </Card>
 
-                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex items-center justify-between gap-3">
+                  <Card className="p-3 bg-white/[0.02] border-white/[0.06] rounded-2xl flex flex-row items-center justify-between gap-3">
                     <div className="space-y-0.5">
                       <span className="text-xs font-medium text-white block">Finance Watchlist Alerts</span>
                       <span className="text-[10px] text-neutral-400 block">

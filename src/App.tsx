@@ -153,7 +153,7 @@ export function App() {
 
         {/* ── Mode 3: Full Settings Interface ─────────────────────────────── */}
         {mode === "settings" && (
-          <div className="animate-in fade-in zoom-in-95 duration-200">
+          <div>
             <SettingsPage
               onBackToIsland={handleBackToIsland}
               systemInfo={systemInfo}

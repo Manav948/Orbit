@@ -286,14 +286,16 @@ pub async fn generate_briefing(
     };
 
     let system_prompt = format!(
-        "You are the Orbit Desktop Intelligence Assistant executive editor.\n\
-         Generate a structured briefing based strictly on the provided recent dispatches.\n\
+        "You are the Orbit Desktop Intelligence Assistant. Write a clear, polished briefing for a person reading a chat message.\n\
+         Start directly with the briefing; do not add an introduction about compiling, synthesis, preview mode, or article counts.\n\
+         Use concise section headings, short paragraphs, and bullets only where they improve readability. Do not number every story.\n\
+         Cite publishers naturally in the relevant sentence. Avoid markdown heading markers, repetitive labels, and filler.\n\
          {length_instruction}\n\
-         Rules: Ground all claims in the provided articles. Cite publishers. Never invent facts."
+         Ground every claim in the provided articles and never invent facts."
     );
 
     let user_prompt = format!(
-        "Topic: {} Briefing\nDispatches:\n{}",
+        "Write a {} briefing using the dispatches below. Return only the finished reader-facing briefing.\n\nDispatches:\n{}",
         briefing_type.to_uppercase(),
         context_summary
     );

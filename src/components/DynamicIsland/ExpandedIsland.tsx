@@ -5,7 +5,6 @@ import {
   Settings,
   X,
   ChevronUp,
-  ChevronDown,
   BookOpen,
   CornerDownLeft,
   Volume2,
@@ -38,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { listen } from "@tauri-apps/api/event";
 import {
   dbService,
   type Article,
@@ -72,6 +72,26 @@ type SortMode = "latest" | "importance";
 type DateFilter = "all" | "today" | "24h" | "7d";
 
 const PAGE_SIZE = 20;
+
+function renderBriefing(summary: string) {
+  const lines = summary
+    .replace(/^Automated synthesis of \d+ dispatches compiled locally\.?\s*/i, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return lines.map((line, index) => {
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    const bullet = line.match(/^(?:[-*•]|\d+[.)])\s+(.+)$/);
+    if (heading) {
+      return <h3 key={index} className="pt-2 text-sm font-semibold text-white">{heading[1]}</h3>;
+    }
+    if (bullet) {
+      return <p key={index} className="pl-3 before:mr-2 before:text-amber-300 before:content-['•']">{bullet[1]}</p>;
+    }
+    return <p key={index}>{line.replace(/^Executive Briefing\s*\([^)]*\):?\s*/i, "")}</p>;
+  });
+}
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -330,6 +350,23 @@ export function ExpandedIsland({
     }
   }, [messages, activeView]);
 
+  // Listen for background auto-clustering from RSS sync
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    listen("stories-refreshed", () => {
+      loadStories(false);
+      loadBriefings();
+    })
+      .then((unsub) => {
+        unlisten = unsub;
+      })
+      .catch(() => {});
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [loadStories, loadBriefings]);
+
   // ─────────────────────────────────────────────────────────────────────────
   // Handlers
   // ─────────────────────────────────────────────────────────────────────────
@@ -347,7 +384,12 @@ export function ExpandedIsland({
         setSyncError(`Warning: ${report.errors.length} feeds had timeouts or errors`);
       }
       await loadArticles(true);
-      if (activeView === "intelligence") await loadStories(true);
+      if (activeView === "intelligence" || newCount > 0) {
+        await loadStories(true);
+      }
+      if (activeView === "briefings") {
+        await loadBriefings();
+      }
     } catch {
       setSyncError("Network sync failed. Showing cached dispatches.");
     } finally {
@@ -640,7 +682,7 @@ export function ExpandedIsland({
   return (
     <Card
       onClick={(e) => e.stopPropagation()}
-      className="w-[680px] max-h-[520px] p-0 gap-0 bg-[#07080b]/98 border-white/[0.09] hover:border-white/[0.13] rounded-3xl overflow-hidden backdrop-blur-2xl transition-all duration-300 text-neutral-200 select-none ring-1 ring-white/[0.04] flex flex-col"
+      className="w-[680px] h-[520px] p-0 gap-0 bg-[#07080b]/98 border-white/[0.09] hover:border-white/[0.13] rounded-3xl overflow-hidden backdrop-blur-2xl transition-colors duration-300 text-neutral-200 select-none ring-1 ring-white/[0.04] flex flex-col"
     >
       {/* ── Top Header Bar ──────────────────────────────────────────────── */}
       <div
@@ -1459,15 +1501,12 @@ export function ExpandedIsland({
                       >
                         <Volume2 className="w-3 h-3" />
                       </Button>
-                      <Badge variant="outline" className="text-[8px] bg-white/[0.04] border-white/[0.08]">
-                        {activeBriefing.model_used || "gpt-4o-mini"}
-                      </Badge>
                       <span>{formatTime(activeBriefing.created_at)}</span>
                     </div>
                   </div>
 
-                  <div className="text-xs text-neutral-200 leading-relaxed whitespace-pre-wrap space-y-2 font-sans">
-                    {activeBriefing.summary}
+                  <div className="text-xs text-neutral-200 leading-relaxed space-y-2 font-sans">
+                    {renderBriefing(activeBriefing.summary)}
                   </div>
                 </div>
               ) : (
@@ -1691,7 +1730,7 @@ export function ExpandedIsland({
               </div>
             </div>
 
-            {articlesError && (
+            {articlesError && !isLoadingArticles && (
               <div className="px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-300 flex items-center gap-2 shrink-0">
                 <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
                 <span className="flex-1">{articlesError}</span>
