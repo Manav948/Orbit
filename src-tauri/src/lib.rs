@@ -8,7 +8,7 @@ mod notifications;
 use commands::db_commands::{
     ai_ask_question, ai_generate_briefing, ai_get_briefings, ai_get_config, ai_get_providers_config,
     ai_get_stories, ai_process_news, ai_save_config, ai_save_provider_config, ai_test_connection,
-    ai_test_provider_connection, assistant_create_conversation, assistant_delete_conversation,
+    ai_test_provider_connection, ai_transcribe_audio, assistant_create_conversation, assistant_delete_conversation,
     assistant_get_conversations, assistant_get_messages, assistant_send_message, db_add_news_source,
     db_backup_database, db_clear_temporary_cache, db_delete_news_source, db_delete_setting,
     db_get_all_settings, db_get_articles, db_get_articles_paginated, db_get_briefings_by_category,
@@ -261,6 +261,7 @@ pub fn run() {
             ai_generate_briefing,
             ai_get_briefings,
             ai_ask_question,
+            ai_transcribe_audio,
             // Conversational Assistant commands
             assistant_send_message,
             assistant_get_conversations,

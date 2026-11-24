@@ -26,7 +26,7 @@ tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart"] }
 feed-rs = "2"
 url = "2"
 tokio = { version = "1", features = ["sync", "time"] }

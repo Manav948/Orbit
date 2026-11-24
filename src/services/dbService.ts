@@ -594,6 +594,14 @@ export const dbService = {
     });
   },
 
+  // ── Speech to Text (Whisper) ─────────────────────────────────────────────
+  async transcribeAudio(bytes: number[], mimeType?: string): Promise<string> {
+    return call<string>("ai_transcribe_audio", {
+      bytes,
+      mimeType: mimeType ?? null,
+    });
+  },
+
   // ── System & Process Telemetry ───────────────────────────────────────────
   async getProcessMetrics(): Promise<ProcessMetrics> {
     return call<ProcessMetrics>("system_get_process_metrics");

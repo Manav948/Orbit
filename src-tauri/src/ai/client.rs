@@ -123,13 +123,28 @@ pub struct AiConfigInfo {
     pub briefing_length: String,
 }
 
-/// Retrieve the active provider configured in SQLite settings.
+/// Retrieve the active provider configured in SQLite settings with smart fallback.
 pub fn get_active_provider(conn: &Connection) -> AiProvider {
-    crate::db::repository::get_setting(conn, "active_ai_provider")
-        .ok()
-        .flatten()
-        .map(|s| AiProvider::from_str_name(&s))
-        .unwrap_or(AiProvider::OpenAi)
+    if let Ok(Some(s)) = crate::db::repository::get_setting(conn, "active_ai_provider") {
+        let p = AiProvider::from_str_name(&s);
+        if get_provider_api_key(conn, p).is_some() {
+            return p;
+        }
+    }
+
+    // Smart auto-detection: if the configured active provider has no key,
+    // automatically use whichever provider the user has configured credentials for.
+    if get_provider_api_key(conn, AiProvider::Groq).is_some() {
+        return AiProvider::Groq;
+    }
+    if get_provider_api_key(conn, AiProvider::OpenAi).is_some() {
+        return AiProvider::OpenAi;
+    }
+    if get_provider_api_key(conn, AiProvider::Gemini).is_some() {
+        return AiProvider::Gemini;
+    }
+
+    AiProvider::Groq
 }
 
 /// Retrieve the API key for a specific provider.
@@ -500,4 +515,92 @@ pub async fn send_chat_completion(
         max_tokens,
     )
     .await
+}
+
+#[derive(Debug, Deserialize)]
+struct WhisperResponse {
+    text: Option<String>,
+}
+
+/// Determines which provider and credentials to use for speech-to-text.
+pub fn get_whisper_config(conn: &Connection) -> Result<(AiProvider, String, &'static str, &'static str), String> {
+    if let Some(groq_key) = get_provider_api_key(conn, AiProvider::Groq) {
+        Ok((
+            AiProvider::Groq,
+            groq_key,
+            "whisper-large-v3-turbo",
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+        ))
+    } else if let Some(openai_key) = get_provider_api_key(conn, AiProvider::OpenAi) {
+        Ok((
+            AiProvider::OpenAi,
+            openai_key,
+            "whisper-1",
+            "https://api.openai.com/v1/audio/transcriptions",
+        ))
+    } else {
+        Err(
+            "No Groq or OpenAI API key found for speech recognition. Please paste your Groq API key in Settings > Multi-Provider AI."
+                .to_string(),
+        )
+    }
+}
+
+/// Transcribes speech audio using Groq Whisper (ultra-fast ~200ms) or OpenAI Whisper.
+pub async fn transcribe_audio(
+    provider: AiProvider,
+    api_key: String,
+    model: &'static str,
+    endpoint: &'static str,
+    audio_bytes: Vec<u8>,
+    mime_type: Option<&str>,
+) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(25))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let mime = mime_type.unwrap_or("audio/webm");
+    let file_part = reqwest::multipart::Part::bytes(audio_bytes)
+        .file_name("recording.webm")
+        .mime_str(mime)
+        .map_err(|e| format!("Invalid audio MIME type: {e}"))?;
+
+    let form = reqwest::multipart::Form::new()
+        .text("model", model.to_string())
+        .text("response_format", "json")
+        .part("file", file_part);
+
+    let response = client
+        .post(endpoint)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| format!("Transcription network error to {}: {e}", provider.display_name()))?;
+
+    let status = response.status();
+    if status.is_success() {
+        let parsed: WhisperResponse = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse Whisper response: {e}"))?;
+
+        if let Some(txt) = parsed.text {
+            let trimmed = txt.trim().to_string();
+            if !trimmed.is_empty() {
+                return Ok(trimmed);
+            }
+            return Err("No audible speech detected in recording. Please try speaking closer to your microphone.".to_string());
+        }
+        return Err("Empty transcript returned by Whisper.".to_string());
+    }
+
+    let error_body = response.text().await.unwrap_or_default();
+    Err(format!(
+        "{} Whisper error ({}): {}",
+        provider.display_name(),
+        status,
+        error_body
+    ))
 }

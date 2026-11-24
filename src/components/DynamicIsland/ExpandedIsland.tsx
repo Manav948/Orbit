@@ -300,10 +300,16 @@ export function ExpandedIsland({
     try {
       const list = await dbService.getConversations(20);
       setConversations(list);
-      if (list.length > 0 && !activeConversationId) {
-        setActiveConversationId(list[0].id);
-        const msgs = await dbService.getConversationMessages(list[0].id);
+      if (list.length > 0) {
+        const targetId =
+          activeConversationId && list.some((c) => c.id === activeConversationId)
+            ? activeConversationId
+            : list[0].id;
+        setActiveConversationId(targetId);
+        const msgs = await dbService.getConversationMessages(targetId);
         setMessages(msgs);
+      } else {
+        setMessages([]);
       }
     } catch (err) {
       console.warn("Failed to load conversations:", err);
@@ -337,6 +343,7 @@ export function ExpandedIsland({
     } else if (activeView === "briefings") {
       loadBriefings();
     } else if (activeView === "assistant") {
+      setSyncError(null);
       loadConversations();
     } else if (activeView === "finance") {
       loadFinanceQuotes();
@@ -548,13 +555,13 @@ export function ExpandedIsland({
   };
 
   // ── Voice Input Handlers ──────────────────────────────────────────────────
-  const handleMicSearch = () => {
+  const handleMicSearch = async () => {
     if (micActive) {
       voiceService.stopListening();
       setMicActive(false);
     } else {
       setMicActive(true);
-      const started = voiceService.startListening(
+      const started = await voiceService.startListening(
         (transcript) => setSearchQuery(transcript),
         (err) => {
           setSyncError(err);
@@ -566,13 +573,13 @@ export function ExpandedIsland({
     }
   };
 
-  const handleMicAssistant = () => {
+  const handleMicAssistant = async () => {
     if (assistantMicActive) {
       voiceService.stopListening();
       setAssistantMicActive(false);
     } else {
       setAssistantMicActive(true);
-      const started = voiceService.startListening(
+      const started = await voiceService.startListening(
         (transcript) => setAssistantInput(transcript),
         (err) => {
           setSyncError(err);
@@ -1287,7 +1294,15 @@ export function ExpandedIsland({
               ) : (
                 messages.map((m) => {
                   const isUser = m.role === "user";
-                  const sources: Article[] = m.sources_json ? JSON.parse(m.sources_json) : [];
+                  let sources: Article[] = [];
+                  if (m.sources_json) {
+                    try {
+                      const parsed = JSON.parse(m.sources_json);
+                      if (Array.isArray(parsed)) sources = parsed;
+                    } catch {
+                      sources = [];
+                    }
+                  }
 
                   return (
                     <div

@@ -637,3 +637,27 @@ pub fn db_restore_database(
     restore_database(&mut conn, trimmed)
 }
 
+#[tauri::command]
+pub async fn ai_transcribe_audio(
+    state: State<'_, DbState>,
+    bytes: Vec<u8>,
+    mime_type: Option<String>,
+) -> Result<String, String> {
+    if bytes.is_empty() {
+        return Err("Audio recording was empty. Please speak clearly into your microphone.".to_string());
+    }
+    let (provider, api_key, model, endpoint) = {
+        let conn = state.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        crate::ai::client::get_whisper_config(&conn)?
+    };
+    crate::ai::client::transcribe_audio(
+        provider,
+        api_key,
+        model,
+        endpoint,
+        bytes,
+        mime_type.as_deref(),
+    )
+    .await
+}
+

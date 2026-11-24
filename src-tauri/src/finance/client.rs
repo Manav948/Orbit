@@ -4,7 +4,6 @@
 //! secure on the Rust backend. Includes fallback sample data and sparkline generation
 //! so the user can explore finance features without requiring an instant API key.
 
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -140,25 +139,124 @@ fn company_name_for_symbol(symbol: &str) -> &'static str {
     }
 }
 
-/// Fetch a single quote from Finnhub or generate clean realistic fallback data.
-pub async fn get_quote(api_key: Option<&str>, symbol: &str) -> Result<StockQuote, String> {
+#[derive(Debug, Deserialize)]
+struct YahooChartResponse {
+    chart: Option<YahooChartContent>,
+}
+
+#[derive(Debug, Deserialize)]
+struct YahooChartContent {
+    result: Option<Vec<YahooChartResult>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct YahooChartResult {
+    meta: Option<YahooChartMeta>,
+    indicators: Option<YahooChartIndicators>,
+}
+
+#[derive(Debug, Deserialize)]
+struct YahooChartMeta {
+    #[serde(rename = "regularMarketPrice")]
+    regular_market_price: Option<f64>,
+    #[serde(rename = "chartPreviousClose")]
+    chart_previous_close: Option<f64>,
+    #[serde(rename = "regularMarketDayHigh")]
+    regular_market_day_high: Option<f64>,
+    #[serde(rename = "regularMarketDayLow")]
+    regular_market_day_low: Option<f64>,
+    #[serde(rename = "shortName")]
+    short_name: Option<String>,
+    #[serde(rename = "longName")]
+    long_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct YahooChartIndicators {
+    quote: Option<Vec<YahooChartQuoteIndicator>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct YahooChartQuoteIndicator {
+    close: Option<Vec<Option<f64>>>,
+}
+
+/// Fetches real live market quote and 5-day historical sparkline directly from public exchange data.
+async fn fetch_yahoo_quote(client: &reqwest::Client, sym: &str) -> Option<StockQuote> {
+    let url = format!("https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&range=5d");
+    let resp = client
+        .get(&url)
+        .header(reqwest::header::USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .send()
+        .await
+        .ok()?;
+
+    if !resp.status().is_success() {
+        return None;
+    }
+
+    let data: YahooChartResponse = resp.json().await.ok()?;
+    let item = data.chart?.result?.into_iter().next()?;
+    let meta = item.meta?;
+    let price = meta.regular_market_price?;
+    let prev_close = meta.chart_previous_close.unwrap_or(price);
+    let high = meta.regular_market_day_high.unwrap_or(price);
+    let low = meta.regular_market_day_low.unwrap_or(price);
+
+    let change = price - prev_close;
+    let change_percent = if prev_close > 0.0 { (change / prev_close) * 100.0 } else { 0.0 };
+
+    let mut sparkline: Vec<f64> = Vec::new();
+    if let Some(ind) = item.indicators {
+        if let Some(q_list) = ind.quote {
+            if let Some(q_first) = q_list.into_iter().next() {
+                if let Some(closes) = q_first.close {
+                    for c in closes.into_iter().flatten() {
+                        sparkline.push((c * 100.0).round() / 100.0);
+                    }
+                }
+            }
+        }
+    }
+    if sparkline.is_empty() {
+        sparkline = vec![prev_close, low, (high + low) / 2.0, high, price];
+    } else {
+        sparkline.push((price * 100.0).round() / 100.0);
+    }
+
+    let name = meta.long_name
+        .or(meta.short_name)
+        .unwrap_or_else(|| company_name_for_symbol(sym).to_string());
+
+    Some(StockQuote {
+        symbol: sym.to_string(),
+        name,
+        price: (price * 100.0).round() / 100.0,
+        change: (change * 100.0).round() / 100.0,
+        change_percent: (change_percent * 100.0).round() / 100.0,
+        high: (high * 100.0).round() / 100.0,
+        low: (low * 100.0).round() / 100.0,
+        open: prev_close,
+        previous_close: (prev_close * 100.0).round() / 100.0,
+        timestamp: "Real-time Exchange Data".to_string(),
+        is_delayed: false,
+        provider: "Live Exchange Feed".to_string(),
+        sparkline,
+    })
+}
+
+/// Fetch a single quote with Finnhub (if key present), falling back to Yahoo Finance live data, then offline sample.
+pub async fn get_single_quote_with_client(
+    client: &reqwest::Client,
+    api_key: Option<&str>,
+    symbol: &str,
+) -> StockQuote {
     let sym = symbol.trim().to_uppercase();
 
+    // 1. Try Finnhub if user provided an API key
     if let Some(key) = api_key {
-        let url = format!(
-            "https://finnhub.io/api/v1/quote?symbol={}&token={}",
-            sym, key
-        );
-
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(8))
-            .build()
-            .map_err(|e| format!("HTTP client error: {e}"))?;
-
-        let mut headers = HeaderMap::new();
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-
-        if let Ok(resp) = client.get(&url).headers(headers).send().await {
+        let url = format!("https://finnhub.io/api/v1/quote?symbol={}&token={}", sym, key);
+        if let Ok(resp) = client.get(&url).send().await {
             if resp.status().is_success() {
                 if let Ok(finnhub) = resp.json::<FinnhubQuoteResponse>().await {
                     if let Some(price) = finnhub.c {
@@ -169,10 +267,9 @@ pub async fn get_quote(api_key: Option<&str>, symbol: &str) -> Result<StockQuote
                             let pc = finnhub.pc.unwrap_or(price);
                             let change = finnhub.d.unwrap_or(price - pc);
                             let change_percent = finnhub.dp.unwrap_or((change / pc) * 100.0);
-
                             let sparkline = vec![pc, open, low, (high + low) / 2.0, high, price];
 
-                            return Ok(StockQuote {
+                            return StockQuote {
                                 symbol: sym.clone(),
                                 name: company_name_for_symbol(&sym).to_string(),
                                 price: (price * 100.0).round() / 100.0,
@@ -186,7 +283,7 @@ pub async fn get_quote(api_key: Option<&str>, symbol: &str) -> Result<StockQuote
                                 is_delayed: false,
                                 provider: "Finnhub Live".to_string(),
                                 sparkline,
-                            });
+                            };
                         }
                     }
                 }
@@ -194,19 +291,50 @@ pub async fn get_quote(api_key: Option<&str>, symbol: &str) -> Result<StockQuote
         }
     }
 
-    // Fallback sample quotes when API key is missing or rate limited
-    Ok(generate_sample_quote(&sym))
+    // 2. Fetch REAL live market quote from Yahoo Finance without requiring any user API key
+    if let Some(q) = fetch_yahoo_quote(client, &sym).await {
+        return q;
+    }
+
+    // 3. Fallback sample quotes when network is completely unreachable
+    generate_sample_quote(&sym)
 }
 
-/// Fetch quotes for an array of symbols (e.g. user watchlist).
+/// Fetch a single quote.
+pub async fn get_quote(api_key: Option<&str>, symbol: &str) -> Result<StockQuote, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    Ok(get_single_quote_with_client(&client, api_key, symbol).await)
+}
+
+/// Fetch quotes for an array of symbols concurrently (user watchlist).
 pub async fn get_watchlist_quotes(
     api_key: Option<&str>,
     symbols: &[String],
 ) -> Result<Vec<StockQuote>, String> {
-    let mut quotes = Vec::new();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let mut tasks = Vec::new();
     for sym in symbols {
-        let q = get_quote(api_key, sym).await.unwrap_or_else(|_| generate_sample_quote(sym));
-        quotes.push(q);
+        let s = sym.clone();
+        let key = api_key.map(|k| k.to_string());
+        let c = client.clone();
+        tasks.push(tokio::spawn(async move {
+            get_single_quote_with_client(&c, key.as_deref(), &s).await
+        }));
+    }
+
+    let mut quotes = Vec::new();
+    for t in tasks {
+        if let Ok(q) = t.await {
+            quotes.push(q);
+        }
     }
     Ok(quotes)
 }

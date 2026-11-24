@@ -414,14 +414,14 @@ export function SettingsPage({
   };
 
   // Voice Test Handlers
-  const handleToggleVoiceTest = () => {
+  const handleToggleVoiceTest = async () => {
     if (isListeningTest) {
       voiceService.stopListening();
       setIsListeningTest(false);
     } else {
       setVoiceTestTranscript("");
       setVoiceTestError(null);
-      const started = voiceService.startListening(
+      const started = await voiceService.startListening(
         (text) => setVoiceTestTranscript(text),
         (err) => {
           setVoiceTestError(err);
@@ -1337,12 +1337,12 @@ export function SettingsPage({
                           : "bg-amber-500/10 text-amber-300 border-amber-500/30"
                         }`}
                     >
-                      {voiceSupported ? "WebView2 Speech Supported" : "Manual Text Fallback"}
+                      {voiceSupported ? "Groq Whisper AI Dictation Ready" : "Manual Text Fallback"}
                     </Badge>
                   </div>
 
                   <p className="text-[10px] text-neutral-400 leading-relaxed">
-                    Voice dictation uses Windows WebView2 Web Speech capabilities. Click the test microphone button below to test your audio recording device.
+                    Voice dictation records audio using your system microphone and transcribes it in milliseconds using Groq / OpenAI Whisper AI. Click the test microphone button below to test your audio device.
                   </p>
 
                   <div className="flex items-center space-x-2">

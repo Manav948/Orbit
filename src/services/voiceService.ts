@@ -1,100 +1,47 @@
 /**
  * voiceService.ts
  *
- * Windows WebView2 Speech Recognition Service.
- * Evaluates browser Web Speech API availability dynamically, provides microphone
- * start/stop controls, interim and final transcript streaming, and graceful error handling.
+ * Windows WebView2 Speech Recognition & Voice Dictation Service.
+ * Captures microphone audio using the standard MediaRecorder API and transcribes
+ * via Groq Whisper (whisper-large-v3-turbo ~200ms) or OpenAI Whisper on the Rust backend.
+ * Bypasses Google's locked Web Speech cloud endpoint to prevent "network" errors in WebView2.
  */
 
-// Typing for Web Speech API
-interface IWindowSpeechRecognition extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-  onstart: (() => void) | null;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
-  onend: (() => void) | null;
-}
-
-interface SpeechRecognitionEvent {
-  resultIndex: number;
-  results: SpeechRecognitionResultList;
-}
-
-interface SpeechRecognitionResultList {
-  length: number;
-  item(index: number): SpeechRecognitionResult;
-  [index: number]: SpeechRecognitionResult;
-}
-
-interface SpeechRecognitionResult {
-  isFinal: boolean;
-  [index: number]: SpeechRecognitionAlternative;
-}
-
-interface SpeechRecognitionAlternative {
-  transcript: string;
-  confidence: number;
-}
-
-interface SpeechRecognitionErrorEvent {
-  error: string;
-  message?: string;
-}
-
-type SpeechRecognitionConstructor = new () => IWindowSpeechRecognition;
-
-declare global {
-  interface Window {
-    SpeechRecognition?: SpeechRecognitionConstructor;
-    webkitSpeechRecognition?: SpeechRecognitionConstructor;
-  }
-}
+import { dbService } from "./dbService";
 
 export interface VoiceRecognitionStatus {
   isSupported: boolean;
   isListening: boolean;
+  isTranscribing: boolean;
   error: string | null;
 }
 
 class VoiceRecognitionService {
-  private recognition: IWindowSpeechRecognition | null = null;
+  private mediaRecorder: MediaRecorder | null = null;
+  private mediaStream: MediaStream | null = null;
+  private audioChunks: Blob[] = [];
   private isListening = false;
+  private isTranscribing = false;
   private statusListeners: Array<(status: VoiceRecognitionStatus) => void> = [];
 
-  constructor() {
-    this.initRecognition();
-  }
-
-  private initRecognition() {
-    if (typeof window === "undefined") return;
-
-    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRec) {
-      try {
-        const instance = new SpeechRec();
-        instance.continuous = true;
-        instance.interimResults = true;
-        instance.lang = "en-US";
-        this.recognition = instance;
-      } catch (err) {
-        console.warn("[Voice] Web Speech API constructor failed:", err);
-      }
-    }
-  }
+  private onTranscriptCallback: ((text: string, isFinal: boolean) => void) | null = null;
+  private onErrorCallback: ((error: string) => void) | null = null;
+  private onEndCallback: (() => void) | null = null;
 
   public isSupported(): boolean {
-    return !!(typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition));
+    return !!(
+      typeof navigator !== "undefined" &&
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === "function" &&
+      typeof window.MediaRecorder !== "undefined"
+    );
   }
 
   public getStatus(): VoiceRecognitionStatus {
     return {
       isSupported: this.isSupported(),
       isListening: this.isListening,
+      isTranscribing: this.isTranscribing,
       error: null,
     };
   }
@@ -111,25 +58,29 @@ class VoiceRecognitionService {
     const status: VoiceRecognitionStatus = {
       isSupported: this.isSupported(),
       isListening: this.isListening,
+      isTranscribing: this.isTranscribing,
       error,
     };
     for (const listener of this.statusListeners) {
-      listener(status);
+      try {
+        listener(status);
+      } catch {
+        // ignore
+      }
     }
   }
 
   /**
-   * Start listening for voice input.
-   * `onTranscript` receives the accumulated text (interim or final) so the input field can update live.
-   * `onEnd` is called when listening terminates.
+   * Starts recording audio from the microphone.
+   * Call `stopListening()` when done to transcribe with Groq Whisper.
    */
-  public startListening(
+  public async startListeningAsync(
     onTranscript: (text: string, isFinal: boolean) => void,
     onError: (errorMessage: string) => void,
     onEnd?: () => void
-  ): boolean {
-    if (!this.isSupported() || !this.recognition) {
-      const msg = "Speech Recognition is not natively supported in this WebView2 runtime. Please use manual text input.";
+  ): Promise<boolean> {
+    if (!this.isSupported()) {
+      const msg = "Microphone audio recording is not supported in this runtime environment.";
       onError(msg);
       this.notify(msg);
       return false;
@@ -137,83 +88,156 @@ class VoiceRecognitionService {
 
     if (this.isListening) {
       this.stopListening();
+      return true;
     }
 
+    this.onTranscriptCallback = onTranscript;
+    this.onErrorCallback = onError;
+    this.onEndCallback = onEnd || null;
+    this.audioChunks = [];
+
     try {
-      this.recognition.onstart = () => {
-        this.isListening = true;
-        this.notify(null);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+
+      this.mediaStream = stream;
+
+      // Pick best supported MIME type
+      let mimeType = "audio/webm";
+      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+        mimeType = "audio/webm;codecs=opus";
+      } else if (MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")) {
+        mimeType = "audio/ogg;codecs=opus";
+      } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+        mimeType = "audio/mp4";
+      }
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      this.mediaRecorder = recorder;
+
+      recorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data && event.data.size > 0) {
+          this.audioChunks.push(event.data);
+        }
       };
 
-      this.recognition.onresult = (event: SpeechRecognitionEvent) => {
-        let fullTranscript = "";
-        let isFinal = false;
+      recorder.onstop = async () => {
+        this.isListening = false;
+        this.cleanupStream();
 
-        for (let i = 0; i < event.results.length; i++) {
-          const res = event.results[i];
-          if (res && res[0]) {
-            fullTranscript += res[0].transcript;
-            if (res.isFinal) isFinal = true;
+        if (this.audioChunks.length === 0) {
+          if (this.onEndCallback) this.onEndCallback();
+          this.notify(null);
+          return;
+        }
+
+        // Process audio with Whisper
+        this.isTranscribing = true;
+        this.notify(null);
+
+        try {
+          const audioBlob = new Blob(this.audioChunks, { type: mimeType });
+          const arrayBuffer = await audioBlob.arrayBuffer();
+          const bytes = Array.from(new Uint8Array(arrayBuffer));
+
+          const transcript = await dbService.transcribeAudio(bytes, mimeType);
+          if (this.onTranscriptCallback && transcript.trim()) {
+            this.onTranscriptCallback(transcript.trim(), true);
           }
-        }
-
-        if (fullTranscript.trim()) {
-          onTranscript(fullTranscript, isFinal);
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : "Audio transcription failed.";
+          if (this.onErrorCallback) {
+            this.onErrorCallback(errMsg);
+          }
+          this.notify(errMsg);
+        } finally {
+          this.isTranscribing = false;
+          this.audioChunks = [];
+          if (this.onEndCallback) {
+            this.onEndCallback();
+          }
+          this.notify(null);
         }
       };
 
-      this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      recorder.onerror = () => {
         this.isListening = false;
-        let userMessage = "Speech recognition error.";
-        switch (event.error) {
-          case "not-allowed":
-            userMessage = "Microphone access denied. Please allow microphone permissions in Windows Settings.";
-            break;
-          case "no-speech":
-            userMessage = "No speech detected. Please speak closer to your microphone.";
-            break;
-          case "network":
-            userMessage = "Speech service network issue. Please check your connection or use manual text input.";
-            break;
-          case "audio-capture":
-            userMessage = "No microphone hardware detected. Please connect an audio input device.";
-            break;
-          default:
-            userMessage = `Speech recognition error: ${event.error}`;
-        }
-        onError(userMessage);
-        this.notify(userMessage);
+        this.cleanupStream();
+        const msg = "Audio recording error.";
+        if (this.onErrorCallback) this.onErrorCallback(msg);
+        this.notify(msg);
       };
 
-      this.recognition.onend = () => {
-        this.isListening = false;
-        this.notify(null);
-        if (onEnd) onEnd();
-      };
-
-      this.recognition.start();
+      recorder.start(250); // collect in 250ms chunks
+      this.isListening = true;
+      this.notify(null);
       return true;
-    } catch (err) {
+    } catch (err: unknown) {
       this.isListening = false;
-      const msg = err instanceof Error ? err.message : "Failed to start microphone listener.";
-      onError(msg);
-      this.notify(msg);
+      this.cleanupStream();
+
+      let userMessage = "Could not access microphone.";
+      if (err instanceof Error) {
+        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+          userMessage = "Microphone access denied. Please allow microphone permissions in Windows Settings > Privacy > Microphone.";
+        } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+          userMessage = "No microphone hardware detected. Please connect an audio input device.";
+        } else {
+          userMessage = `Microphone error: ${err.message}`;
+        }
+      }
+
+      if (this.onErrorCallback) this.onErrorCallback(userMessage);
+      this.notify(userMessage);
       return false;
     }
   }
 
+  /**
+   * Synchronous signature wrapper for compatibility with callers.
+   */
+  public startListening(
+    onTranscript: (text: string, isFinal: boolean) => void,
+    onError: (errorMessage: string) => void,
+    onEnd?: () => void
+  ): boolean {
+    this.startListeningAsync(onTranscript, onError, onEnd).catch((err) => {
+      onError(err instanceof Error ? err.message : "Failed to start microphone.");
+    });
+    return true;
+  }
+
+  /**
+   * Stop listening and trigger transcription of recorded speech.
+   */
   public stopListening() {
-    if (this.recognition && this.isListening) {
+    if (this.mediaRecorder && this.isListening) {
       try {
-        this.recognition.stop();
+        if (this.mediaRecorder.state !== "inactive") {
+          this.mediaRecorder.stop();
+        }
       } catch {
         // ignore
       }
     }
     this.isListening = false;
-    this.notify(null);
+  }
+
+  private cleanupStream() {
+    if (this.mediaStream) {
+      try {
+        this.mediaStream.getTracks().forEach((track) => track.stop());
+      } catch {
+        // ignore
+      }
+      this.mediaStream = null;
+    }
   }
 }
 
 export const voiceService = new VoiceRecognitionService();
-
