@@ -1,4 +1,4 @@
-# Nexora — Configuration Guide
+# Orbit — Configuration Guide
 
 All configuration is done through **Settings → (tab)** inside the expanded Dynamic Island. API keys are stored securely via the platform credential store and are never written to the SQLite database, log files, or the React bundle.
 
@@ -6,7 +6,7 @@ All configuration is done through **Settings → (tab)** inside the expanded Dyn
 
 ## Multi-Provider AI
 
-Nexora supports three AI providers. Each stores its key independently so you can switch without re-entering credentials.
+Orbit supports three AI providers. Each stores its key independently so you can switch without re-entering credentials.
 
 | Provider | Recommended Model | Use Case |
 |---|---|---|
@@ -36,7 +36,7 @@ Nexora supports three AI providers. Each stores its key independently so you can
 4. Add ticker symbols to your watchlist (e.g. `AAPL`, `TSLA`, `NVDA`, `BTC.X`).
 5. Quotes refresh on demand from the Markets mode in the Dynamic Island.
 
-> **Free tier:** Finnhub's free tier allows ~60 API calls/minute. Nexora respects this by batching watchlist requests and not auto-polling continuously.
+> **Free tier:** Finnhub's free tier allows ~60 API calls/minute. Orbit respects this by batching watchlist requests and not auto-polling continuously.
 
 ---
 

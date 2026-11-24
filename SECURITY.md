@@ -1,8 +1,8 @@
-# Nexora — Security Architecture
+# Orbit — Security Architecture
 
 ## Threat Model
 
-Nexora is a personal desktop application running on Windows. Its primary security concerns are:
+Orbit is a personal desktop application running on Windows. Its primary security concerns are:
 
 1. **API key exposure** — Provider keys must not leak to the UI, logs, or on-disk plaintext.
 2. **Arbitrary protocol execution** — Links opened from news articles must be strictly HTTP/HTTPS.

@@ -1,8 +1,8 @@
-# Nexora — Desktop Intelligence
+# Orbit — Desktop Intelligence
 
 > A lightweight, local-first Windows desktop intelligence application built with **Tauri 2 · Rust · React · TypeScript · SQLite**.
 
-Nexora lives as a **Dynamic Island** at the top-center of your screen. Press **Alt+Space** to open it, and it surfaces AI-powered news analysis, daily briefings, a conversational assistant, and live market data — all without sending your data anywhere it shouldn't go.
+Orbit lives as a **Dynamic Island** at the top-center of your screen. Press **Alt+Space** to open it, and it surfaces AI-powered news analysis, daily briefings, a conversational assistant, and live market data — all without sending your data anywhere it shouldn't go.
 
 ---
 
@@ -28,7 +28,7 @@ Nexora lives as a **Dynamic Island** at the top-center of your screen. Press **A
 ## 🏗 Architecture
 
 ```
-Nexora/
+Orbit/
 ├── src/                        # React + TypeScript frontend
 │   ├── components/
 │   │   ├── DynamicIsland/      # CollapsedIsland, ExpandedIsland (5 modes)
@@ -82,7 +82,7 @@ npm run tauri dev
 
 ```powershell
 npm run tauri build
-# Installer: src-tauri/target/release/bundle/nsis/Nexora_0.1.0_x64-setup.exe
+# Installer: src-tauri/target/release/bundle/nsis/Orbit_0.1.0_x64-setup.exe
 ```
 
 ---

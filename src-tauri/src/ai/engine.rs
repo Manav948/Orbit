@@ -56,7 +56,7 @@ pub struct AssistantReply {
     pub created_at: String,
 }
 
-const SYSTEM_ANALYSIS_PROMPT: &str = r#"You are the Nexora Desktop Intelligence Assistant AI engine.
+const SYSTEM_ANALYSIS_PROMPT: &str = r#"You are the Orbit Desktop Intelligence Assistant AI engine.
 Transform verified news reporting into clear, structured, actionable intelligence.
 
 STRICT VERIFICATION & FACTUAL INTEGRITY RULES:
@@ -80,7 +80,7 @@ You must output valid JSON matching this schema:
   "decision_summary": "Executive decision intelligence: why this matters to decision-makers, potential second-order effects, and indicators to watch."
 }"#;
 
-const SYSTEM_QUESTION_PROMPT: &str = r#"You are Nexora, an intelligent desktop news assistant.
+const SYSTEM_QUESTION_PROMPT: &str = r#"You are Orbit, an intelligent desktop news assistant.
 The user is asking a question about recent developments or current events.
 You must answer using ONLY the provided verified news dispatches.
 
@@ -96,7 +96,7 @@ RULES:
   "decision_explanation": "Strategic takeaway or key metric to watch."
 }"#;
 
-const SYSTEM_ASSISTANT_PROMPT: &str = r#"You are Nexora, a personal AI desktop assistant.
+const SYSTEM_ASSISTANT_PROMPT: &str = r#"You are Orbit, a personal AI desktop assistant.
 You help users with questions, news briefings, analysis of current events, technology/AI advancements, and financial markets.
 
 GUIDELINES:
@@ -286,7 +286,7 @@ pub async fn generate_briefing(
     };
 
     let system_prompt = format!(
-        "You are the Nexora Desktop Intelligence Assistant executive editor.\n\
+        "You are the Orbit Desktop Intelligence Assistant executive editor.\n\
          Generate a structured briefing based strictly on the provided recent dispatches.\n\
          {length_instruction}\n\
          Rules: Ground all claims in the provided articles. Cite publishers. Never invent facts."
@@ -395,7 +395,7 @@ pub async fn ask_question(
 ) -> Result<AiAnswer, String> {
     let question_trimmed = question.trim();
     if question_trimmed.is_empty() {
-        return Err("Please enter a question to ask Nexora.".to_string());
+        return Err("Please enter a question to ask Orbit.".to_string());
     }
 
     let tokens = tokenize(question_trimmed);
@@ -414,7 +414,7 @@ pub async fn ask_question(
         return Ok(AiAnswer {
             question: question_trimmed.to_string(),
             answer: format!(
-                "No verified dispatches regarding \"{}\" were found in your local news feed. Nexora does not speculate or invent current events without source citations. Try refreshing live feeds or asking about recent technology, finance, or world news topics.",
+                "No verified dispatches regarding \"{}\" were found in your local news feed. Orbit does not speculate or invent current events without source citations. Try refreshing live feeds or asking about recent technology, finance, or world news topics.",
                 question_trimmed
             ),
             simple_explanation: Some("No local news records match this question yet.".to_string()),
@@ -472,7 +472,7 @@ pub async fn ask_question(
                 }
             }
             Err(e) => {
-                eprintln!("[Nexora AI] Error in Q&A completion: {e}");
+                eprintln!("[Orbit AI] Error in Q&A completion: {e}");
             }
         }
     }
@@ -632,7 +632,7 @@ pub async fn test_provider_connection(
     };
 
     let system_prompt = "You are an API diagnostic tester. Respond with a short confirmation.";
-    let user_prompt = "Ping test. Please reply 'Pong: Nexora Intelligence Connected'.";
+    let user_prompt = "Ping test. Please reply 'Pong: Orbit Intelligence Connected'.";
 
     let response = send_chat_completion_with_provider(
         provider,

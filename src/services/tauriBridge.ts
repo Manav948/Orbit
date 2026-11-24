@@ -246,7 +246,7 @@ export const tauriBridge = {
   },
 
   /**
-   * Configures Windows registry autostart for Nexora.
+   * Configures Windows registry autostart for Orbit.
    */
   async setLaunchAtStartup(enabled: boolean): Promise<void> {
     if (!isTauriEnvironment()) {

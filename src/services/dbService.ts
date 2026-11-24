@@ -1,7 +1,7 @@
 /**
  * dbService.ts
  *
- * Typed TypeScript client for all Nexora SQLite database, news aggregation,
+ * Typed TypeScript client for all Orbit SQLite database, news aggregation,
  * multi-provider AI, conversational assistant, finance intelligence, and desktop notifications.
  * Every method is async and uses the Tauri `invoke` bridge so database
  * and network operations never block the React render thread.

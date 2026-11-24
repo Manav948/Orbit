@@ -438,7 +438,7 @@ export function SettingsPage({
     ttsService.setVoice(selectedVoiceUri);
     ttsService.setRate(speechRate);
     ttsService.speak(
-      "Hello! I am Nexora, your desktop intelligence assistant. Speech synthesis is functioning properly.",
+      "Hello! I am Orbit, your desktop intelligence assistant. Speech synthesis is functioning properly.",
       () => setIsTestingVoice(false)
     );
   };
@@ -495,7 +495,7 @@ export function SettingsPage({
   const handleSendTestNotification = async () => {
     try {
       await dbService.sendDesktopNotification(
-        "Nexora Desktop Intelligence",
+        "Orbit Desktop Intelligence",
         "Windows desktop alerts and notifications are verified and active.",
         "test",
         true
@@ -675,7 +675,7 @@ export function SettingsPage({
               <OrbitLogo className="w-3 h-3" />
             </div>
             <span className="font-semibold text-xs tracking-tight text-white">
-              Nexora System Preferences
+              Orbit System Preferences
             </span>
           </div>
         </div>
@@ -730,7 +730,7 @@ export function SettingsPage({
 
           <div className="p-2 rounded-xl bg-white/[0.02] border border-white/[0.04] text-[9px] text-neutral-500 space-y-0.5">
             <div className="font-medium text-neutral-400 flex items-center justify-between">
-              <span>Nexora Intelligence</span>
+              <span>Orbit Intelligence</span>
               <span className={`w-1.5 h-1.5 rounded-full ${accent.dot}`} />
             </div>
             <div>Groq • OpenAI • Gemini</div>
@@ -1605,7 +1605,7 @@ export function SettingsPage({
                     <div className="space-y-0.5">
                       <span className="text-xs font-semibold text-white block">Master Desktop Notifications</span>
                       <span className="text-[10px] text-neutral-400 block">
-                        Allow Nexora to display Windows desktop notifications.
+                        Allow Orbit to display Windows desktop notifications.
                       </span>
                     </div>
                     <Switch
@@ -1725,7 +1725,7 @@ export function SettingsPage({
                       <OrbitLogo className="w-6 h-6" />
                     </div>
                     <div>
-                      <h2 className="text-sm font-semibold text-white">Nexora Desktop Intelligence</h2>
+                      <h2 className="text-sm font-semibold text-white">Orbit Desktop Intelligence</h2>
                       <p className="text-[11px] text-neutral-400">
                         Tauri 2 • Rust • SQLite • Multi-Provider AI • Local-First
                       </p>
@@ -1941,7 +1941,7 @@ export function SettingsPage({
                 {/* Reset all settings */}
                 <div className="pt-2 flex justify-between items-center">
                   <span className="text-[10px] text-neutral-500">
-                    Nexora Desktop • Built with Tauri 2 + Rust + React
+                    Orbit Desktop • Built with Tauri 2 + Rust + React
                   </span>
 
                   <Button

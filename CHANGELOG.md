@@ -1,4 +1,4 @@
-# Nexora — Changelog
+# Orbit — Changelog
 
 All notable changes to this project are documented here.
 
@@ -45,7 +45,7 @@ All notable changes to this project are documented here.
 
 ## [0.1.0-beta.6] — Stage 9: Performance Optimization & Security Audit
 
-- Branding unified as **Nexora** across `tauri.conf.json`, window title, tray menu, tooltip, and error strings
+- Branding unified as **Orbit** across `tauri.conf.json`, window title, tray menu, tooltip, and error strings
 - Database corruption detection: `PRAGMA quick_check` on startup; corrupted files quarantined with timestamp suffix
 - High-performance SQLite PRAGMAs applied: WAL, synchronous=NORMAL, cache_size=-64000, mmap_size=268435456, temp_store=MEMORY, busy_timeout=5000
 

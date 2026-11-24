@@ -129,7 +129,7 @@ export function ExpandedIsland({
   const [newsFilter, setNewsFilter] = useState<NewsFilterCategory>("all");
   const [explanationMode, setExplanationMode] = useState<ExplanationMode>("simple");
 
-  // ── Search & Ask Nexora ───────────────────────────────────────────────────
+  // ── Search & Ask Orbit ───────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
   const [isAskingAi, setIsAskingAi] = useState(false);
   const [aiAnswer, setAiAnswer] = useState<AiAnswer | null>(null);
@@ -408,7 +408,7 @@ export function ExpandedIsland({
         ttsService.speak(answer.answer);
       }
     } catch (err) {
-      setSyncError(err instanceof Error ? err.message : "Ask Nexora failed.");
+      setSyncError(err instanceof Error ? err.message : "Ask Orbit failed.");
     } finally {
       setIsAskingAi(false);
     }
@@ -656,7 +656,7 @@ export function ExpandedIsland({
               <OrbitLogo className="w-3.5 h-3.5" />
             </div>
             <span className="font-semibold text-xs tracking-tight text-white">
-              Nexora
+              Orbit
             </span>
           </div>
 
@@ -821,7 +821,7 @@ export function ExpandedIsland({
               placeholder={
                 activeView === "news"
                   ? "Search raw dispatches by keyword or publisher..."
-                  : "Ask Nexora (e.g. Why did NVIDIA decline? What happened in AI?)..."
+                  : "Ask Orbit (e.g. Why did NVIDIA decline? What happened in AI?)..."
               }
               className="h-7 border-0 bg-transparent px-0 py-0 text-xs font-medium text-white placeholder:text-neutral-500 focus-visible:ring-0 focus-visible:border-0 shadow-none"
             />
@@ -882,7 +882,7 @@ export function ExpandedIsland({
                     <CornerDownLeft className="w-3 h-3" />
                   )}
                 </TooltipTrigger>
-                <TooltipContent side="top">Ask Nexora (Enter)</TooltipContent>
+                <TooltipContent side="top">Ask Orbit (Enter)</TooltipContent>
               </Tooltip>
             </div>
           </form>
@@ -1218,7 +1218,7 @@ export function ExpandedIsland({
                 <div className="h-44 flex flex-col items-center justify-center text-center p-4 rounded-2xl bg-white/[0.01] border border-white/[0.04] space-y-2">
                   <Bot className="w-8 h-8 text-sky-400 stroke-[1.2]" />
                   <div className="space-y-0.5">
-                    <p className="text-xs font-medium text-white">Ask Nexora Assistant</p>
+                    <p className="text-xs font-medium text-white">Ask Orbit Assistant</p>
                     <p className="text-[10px] text-neutral-400 max-w-sm">
                       Ask about recent news, current events, technology & AI breakthroughs, or company stock data.
                     </p>
@@ -1319,7 +1319,7 @@ export function ExpandedIsland({
                 type="text"
                 value={assistantInput}
                 onChange={(e) => setAssistantInput(e.target.value)}
-                placeholder="Message Nexora Assistant (or click microphone to speak)..."
+                placeholder="Message Orbit Assistant (or click microphone to speak)..."
                 className="h-7 border-0 bg-transparent px-0 py-0 text-xs font-medium text-white placeholder:text-neutral-500 focus-visible:ring-0 shadow-none flex-1"
               />
 

@@ -1,4 +1,4 @@
-# Nexora — Build Guide
+# Orbit — Build Guide
 
 ## Development Environment Setup
 
@@ -66,9 +66,9 @@ src-tauri\target\release\
   ├── desktop-intelligence-assistant.exe     ← standalone executable
   └── bundle\
       ├── nsis\
-      │   └── Nexora_0.1.0_x64-setup.exe    ← NSIS installer
+      │   └── Orbit_0.1.0_x64-setup.exe    ← NSIS installer
       └── msi\
-          └── Nexora_0.1.0_x64_en-US.msi    ← MSI package
+          └── Orbit_0.1.0_x64_en-US.msi    ← MSI package
 ```
 
 ---

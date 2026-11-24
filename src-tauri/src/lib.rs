@@ -127,18 +127,18 @@ pub fn run() {
 
             // ── 5. Build system-tray menu ──────────────────────────────────────
             let open_item =
-                MenuItem::with_id(app, "open", "Open Nexora", true, None::<&str>)?;
+                MenuItem::with_id(app, "open", "Open Orbit", true, None::<&str>)?;
             let settings_item =
                 MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let separator = tauri::menu::PredefinedMenuItem::separator(app)?;
             let quit_item =
-                MenuItem::with_id(app, "quit", "Exit Nexora", true, None::<&str>)?;
+                MenuItem::with_id(app, "quit", "Exit Orbit", true, None::<&str>)?;
 
             let menu = Menu::with_items(app, &[&open_item, &settings_item, &separator, &quit_item])?;
 
             // ── 6. Build tray icon ─────────────────────────────────────────────
             TrayIconBuilder::new()
-                .tooltip("Nexora Dynamic Island — Alt+Space")
+                .tooltip("Orbit Dynamic Island — Alt+Space")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -286,5 +286,5 @@ pub fn run() {
             system_get_process_metrics,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Nexora application");
+        .expect("error while running Orbit application");
 }
