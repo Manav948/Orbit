@@ -45,7 +45,7 @@ impl AiProvider {
     pub fn default_model(&self) -> &'static str {
         match self {
             Self::OpenAi => "gpt-4o-mini",
-            Self::Groq => "llama-3.3-70b-versatile",
+            Self::Groq => "openai/gpt-oss-20b",
             Self::Gemini => "gemini-1.5-flash",
         }
     }
@@ -53,11 +53,7 @@ impl AiProvider {
     pub fn available_models(&self) -> Vec<&'static str> {
         match self {
             Self::OpenAi => vec!["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
-            Self::Groq => vec![
-                "llama-3.3-70b-versatile",
-                "llama-3.1-8b-instant",
-                "mixtral-8x7b-32768",
-            ],
+            Self::Groq => vec!["openai/gpt-oss-20b"],
             Self::Gemini => vec!["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"],
         }
     }
@@ -296,6 +292,92 @@ struct ChatCompletionResponse {
     choices: Vec<Choice>,
 }
 
+#[derive(Debug, Serialize)]
+struct ResponsesRequest {
+    model: String,
+    input: Vec<ChatMessage>,
+    temperature: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<ResponsesText>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_output_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<ResponsesTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<ResponsesReasoning>,
+}
+
+#[derive(Debug, Serialize)]
+struct ResponsesReasoning {
+    effort: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ResponsesText {
+    format: ResponseFormat,
+}
+
+#[derive(Debug, Serialize)]
+struct ResponsesTool {
+    #[serde(rename = "type")]
+    tool_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResponsesResponse {
+    #[serde(default)]
+    output_text: Option<String>,
+    #[serde(default)]
+    output: Vec<ResponsesOutputItem>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    incomplete_details: Option<ResponsesIncompleteDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResponsesIncompleteDetails {
+    reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResponsesOutputItem {
+    #[serde(rename = "type")]
+    item_type: String,
+    #[serde(default)]
+    content: Vec<ResponsesContent>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResponsesContent {
+    #[serde(rename = "type")]
+    content_type: String,
+    text: Option<String>,
+    refusal: Option<String>,
+    #[serde(default)]
+    annotations: Vec<ResponsesAnnotation>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResponsesAnnotation {
+    url: Option<String>,
+    title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebCitation {
+    pub title: String,
+    pub url: String,
+}
+
+#[derive(Debug)]
+pub struct GroqResponse {
+    pub text: String,
+    pub citations: Vec<WebCitation>,
+}
+
 #[derive(Debug, Deserialize)]
 struct Choice {
     message: ChoiceMessage,
@@ -320,6 +402,196 @@ struct ApiErrorDetail {
     code: Option<String>,
 }
 
+fn build_responses_request(
+    model: &str,
+    input: Vec<ChatMessage>,
+    json_mode: bool,
+    max_tokens: Option<u32>,
+    temperature: f32,
+    web_search: bool,
+) -> ResponsesRequest {
+    ResponsesRequest {
+        model: model.to_string(),
+        input,
+        temperature,
+        text: (json_mode && !web_search).then_some(ResponsesText {
+            format: ResponseFormat {
+                format_type: "json_object".to_string(),
+            },
+        }),
+        max_output_tokens: max_tokens,
+        tools: web_search.then_some(vec![ResponsesTool {
+            tool_type: "browser_search".to_string(),
+        }]),
+        tool_choice: web_search.then(|| "auto".to_string()),
+        reasoning: web_search.then_some(ResponsesReasoning {
+            effort: "low".to_string(),
+        }),
+    }
+}
+
+fn parse_groq_response(parsed: ResponsesResponse) -> Result<GroqResponse, String> {
+    let mut text = parsed
+        .output_text
+        .filter(|text| !text.trim().is_empty());
+    let output_types = parsed
+        .output
+        .iter()
+        .map(|item| item.item_type.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let status = parsed.status.as_deref().unwrap_or("unknown");
+    let incomplete_reason = parsed
+        .incomplete_details
+        .and_then(|details| details.reason)
+        .unwrap_or_else(|| "none".to_string());
+    let mut citations = Vec::new();
+    for item in parsed.output {
+        if item.item_type == "message" {
+            for content in item.content {
+                if text.is_none() {
+                    text = content.text.filter(|content| !content.trim().is_empty());
+                }
+                if text.is_none() && content.content_type == "refusal" {
+                    text = content.refusal.filter(|text| !text.trim().is_empty());
+                }
+                for annotation in content.annotations {
+                    if let Some(url) = annotation.url.filter(|url| !url.is_empty()) {
+                        if !citations
+                            .iter()
+                            .any(|citation: &WebCitation| citation.url == url)
+                        {
+                            citations.push(WebCitation {
+                                title: annotation.title.unwrap_or_else(|| url.clone()),
+                                url,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    text.map(|text| GroqResponse { text, citations })
+        .ok_or_else(|| {
+            format!(
+                "Groq returned no answer text (status: {status}, incomplete reason: {incomplete_reason}, output types: {output_types})."
+            )
+        })
+}
+
+async fn send_groq_responses(
+    api_key: &str,
+    model: &str,
+    input: Vec<ChatMessage>,
+    json_mode: bool,
+    max_tokens: Option<u32>,
+    temperature: f32,
+    web_search: bool,
+) -> Result<GroqResponse, String> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(35))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let auth_header = format!("Bearer {api_key}");
+    let mut auth_val = HeaderValue::from_str(&auth_header)
+        .map_err(|e| format!("Invalid characters in API key: {e}"))?;
+    auth_val.set_sensitive(true);
+    headers.insert(AUTHORIZATION, auth_val);
+
+    let request_payload =
+        build_responses_request(model, input, json_mode, max_tokens, temperature, web_search);
+
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        let response = client
+            .post("https://api.groq.com/openai/v1/responses")
+            .headers(headers.clone())
+            .json(&request_payload)
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    let parsed: ResponsesResponse = resp
+                        .json()
+                        .await
+                        .map_err(|e| format!("Failed to parse Groq Responses API JSON: {e}"))?;
+                    return parse_groq_response(parsed);
+                }
+
+                let error_body = resp.text().await.unwrap_or_default();
+                let err_msg = if let Ok(err_parsed) = serde_json::from_str::<ApiErrorResponse>(&error_body) {
+                    err_parsed
+                        .error
+                        .and_then(|e| e.message)
+                        .unwrap_or_else(|| format!("HTTP {status}"))
+                } else {
+                    format!("HTTP {status}: {error_body}")
+                };
+
+                if status.as_u16() == 401 || status.as_u16() == 403 {
+                    return Err(
+                        "Invalid API Key for Groq. Please verify your key in Settings > AI Configuration."
+                            .to_string(),
+                    );
+                } else if status.as_u16() == 429 {
+                    return Err(format!(
+                        "Groq Rate Limit or Quota Exceeded: {err_msg}. Please check your provider account quota or switch to another provider."
+                    ));
+                } else if status.is_server_error() && attempts < 2 {
+                    tokio::time::sleep(Duration::from_millis(1500)).await;
+                    continue;
+                } else {
+                    return Err(format!("Groq API error ({status}): {err_msg}"));
+                }
+            }
+            Err(e) => {
+                if attempts < 2 && (e.is_timeout() || e.is_connect()) {
+                    tokio::time::sleep(Duration::from_millis(1500)).await;
+                    continue;
+                }
+                return Err(format!("Network connection to Groq failed: {e}"));
+            }
+        }
+    }
+}
+
+pub async fn send_groq_responses_with_web_search(
+    api_key: &str,
+    model: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    json_mode: bool,
+    max_tokens: Option<u32>,
+) -> Result<GroqResponse, String> {
+    send_groq_responses(
+        api_key,
+        model,
+        vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: system_prompt.to_string(),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: user_prompt.to_string(),
+            },
+        ],
+        json_mode,
+        max_tokens,
+        0.2,
+        true,
+    )
+    .await
+}
+
 /// Send a completion request to any supported AI provider.
 pub async fn send_chat_completion_with_provider(
     provider: AiProvider,
@@ -330,6 +602,29 @@ pub async fn send_chat_completion_with_provider(
     json_mode: bool,
     max_tokens: Option<u32>,
 ) -> Result<String, String> {
+    if provider == AiProvider::Groq {
+        return send_groq_responses(
+            api_key,
+            model,
+            vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: system_prompt.to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: user_prompt.to_string(),
+                },
+            ],
+            json_mode,
+            max_tokens,
+            0.2,
+            false,
+        )
+        .await
+        .map(|response| response.text);
+    }
+
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(35))
         .build()
@@ -441,6 +736,12 @@ pub async fn send_conversation_completion(
     messages: Vec<ChatMessage>,
     max_tokens: Option<u32>,
 ) -> Result<String, String> {
+    if provider == AiProvider::Groq {
+        return send_groq_responses(api_key, model, messages, false, max_tokens, 0.3, false)
+            .await
+            .map(|response| response.text);
+    }
+
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(35))
         .build()
@@ -603,4 +904,68 @@ pub async fn transcribe_audio(
         status,
         error_body
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_responses_request, parse_groq_response, ChatMessage, ResponsesResponse};
+
+    #[test]
+    fn web_search_request_does_not_force_tool_call_or_json_mode() {
+        let request = build_responses_request(
+            "openai/gpt-oss-20b",
+            vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Summarize current news.".to_string(),
+            }],
+            true,
+            Some(2048),
+            0.2,
+            true,
+        );
+        let payload = serde_json::to_value(request).unwrap();
+
+        assert_eq!(payload["tool_choice"], "auto");
+        assert_eq!(payload["tools"][0]["type"], "browser_search");
+        assert!(payload.get("text").is_none());
+    }
+
+    #[test]
+    fn extracts_answer_text_and_web_citations() {
+        let response: ResponsesResponse = serde_json::from_str(
+            r#"{
+                "status": "completed",
+                "output": [
+                    {"type": "reasoning", "content": [{"type": "reasoning_text", "text": "searching"}]},
+                    {"type": "message", "content": [{
+                        "type": "output_text",
+                        "text": "Current answer.",
+                        "annotations": [{"url": "https://example.com", "title": "Example"}]
+                    }]}
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let result = parse_groq_response(response).unwrap();
+        assert_eq!(result.text, "Current answer.");
+        assert_eq!(result.citations.len(), 1);
+        assert_eq!(result.citations[0].url, "https://example.com");
+    }
+
+    #[test]
+    fn reports_incomplete_response_without_answer_text() {
+        let response: ResponsesResponse = serde_json::from_str(
+            r#"{
+                "status": "incomplete",
+                "incomplete_details": {"reason": "max_output_tokens"},
+                "output": [{"type": "reasoning", "content": []}]
+            }"#,
+        )
+        .unwrap();
+
+        let error = parse_groq_response(response).unwrap_err();
+        assert!(error.contains("max_output_tokens"));
+        assert!(error.contains("reasoning"));
+    }
 }

@@ -245,6 +245,29 @@ static MIGRATIONS: &[(u32, &str, &str)] = &[
             ('tts_auto_speak', 'false');
         ",
     ),
+    (
+        7,
+        "update default Groq model",
+        "
+        UPDATE settings
+        SET value = 'openai/gpt-oss-20b'
+        WHERE key = 'groq_model' AND value = 'llama-3.3-70b-versatile';
+        ",
+    ),
+    (
+        8,
+        "replace deprecated Groq models",
+        "
+        UPDATE settings
+        SET value = 'openai/gpt-oss-20b'
+        WHERE key = 'groq_model'
+          AND value IN (
+              'llama-3.3-70b-versatile',
+              'llama-3.1-8b-instant',
+              'mixtral-8x7b-32768'
+          );
+        ",
+    ),
 ];
 
 /// Applies any pending migrations to the database.

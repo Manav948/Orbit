@@ -8,8 +8,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ai::client::{
-    get_active_provider, get_provider_api_key, get_provider_model, send_chat_completion_with_provider,
-    send_conversation_completion, AiProvider, ChatMessage,
+    get_active_provider, get_provider_api_key, get_provider_model,
+    send_chat_completion_with_provider, send_conversation_completion,
+    send_groq_responses_with_web_search, AiProvider, ChatMessage, WebCitation,
 };
 use crate::ai::clustering::{cluster_articles, tokenize, RawCluster};
 use crate::db::repository::{
@@ -19,6 +20,7 @@ use crate::db::repository::{
     NewBriefing, NewStoryCluster, StoryClusterWithArticles,
 };
 use crate::db::DbState;
+use crate::finance::client::{get_finance_config, get_finnhub_key, get_watchlist_quotes};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StructuredAnalysis {
@@ -40,8 +42,17 @@ pub struct AiAnswer {
     pub simple_explanation: Option<String>,
     pub decision_explanation: Option<String>,
     pub sources: Vec<Article>,
+    pub web_sources: Vec<WebCitation>,
+    pub market_data_sources: Vec<MarketDataSource>,
     pub model_used: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketDataSource {
+    pub symbol: String,
+    pub provider: String,
+    pub timestamp: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,20 +92,25 @@ You must output valid JSON matching this schema:
 }"#;
 
 const SYSTEM_QUESTION_PROMPT: &str = r#"You are Orbit, an intelligent desktop news assistant.
-The user is asking a question about recent developments or current events.
-You must answer using ONLY the provided verified news dispatches.
+Answer the user's question with relevant, up-to-date information.
 
 RULES:
-1. Answer factually and directly based on the provided dispatches.
-2. If the question asks about events not covered in the provided articles, state clearly: "Based on recent dispatches in your feed, there is no verified reporting available on this specific topic."
-3. Never guess, assume, or hallucinate current events without source citations.
-4. In your answer, cite publishers in parentheses, e.g. (Source: Reuters).
-5. Output valid JSON:
+1. Use Orbit's verified dispatches, AI story summaries, and live market quotes when they are provided. For current-events questions, also use the web search results available to you.
+2. Combine local reporting and web information when both are useful. Clearly distinguish local dispatches from web reporting, and cite publishers or organizations by name.
+3. Treat only explicitly identified live quotes as live. Never invent prices, dates, events, or citations. If no reliable source supports an answer, say what is missing.
+4. Answer the exact question directly. For broad news summaries, synthesize the major developments across topics instead of focusing on a single article.
+5. Write natural, clear prose. Do not output Markdown tables, pipe-separated rows, raw HTML, literal <br> tags, or decorative Markdown such as **. Use short paragraphs and a few bullets only when useful.
+6. Output valid JSON:
 {
-  "answer": "Direct factual answer grounded strictly in the provided sources.",
-  "simple_explanation": "Beginner-friendly breakdown in simple terms.",
-  "decision_explanation": "Strategic takeaway or key metric to watch."
+  "answer": "A concise, direct answer in clear plain-language prose.",
+  "simple_explanation": "A beginner-friendly explanation in clear plain-language prose.",
+  "decision_explanation": "A concise strategic takeaway or useful metric to watch."
 }"#;
+
+const SYSTEM_QUESTION_WEB_PROMPT: &str = r#"You are Orbit, an intelligent desktop news assistant.
+Answer the user's question using relevant Orbit dispatches, AI story summaries, and live market quotes provided in context. For questions about current or recent news, trending subjects, market movements, or today's events, use browser_search before answering. Timeless general questions do not require a search.
+Combine local reporting and web information when both are useful, and distinguish between them. Cite source names in natural prose. Never invent facts or market prices. Use clear, concise plain-language paragraphs or a short bullet list when useful.
+Do not output JSON, Markdown tables, raw HTML, or decorative Markdown. Return only the answer text."#;
 
 const SYSTEM_ASSISTANT_PROMPT: &str = r#"You are Orbit, a personal AI desktop assistant.
 You help users with questions, news briefings, analysis of current events, technology/AI advancements, and financial markets.
@@ -103,7 +119,7 @@ GUIDELINES:
 1. When answering questions regarding recent news, companies, or events, prioritize any provided verified news dispatches and cite publishers.
 2. Clearly distinguish between verified facts from news reports and speculative analysis or AI general knowledge.
 3. If asked for financial advice, provide objective market data and context, but explicitly clarify that you do not offer personalized investment recommendations.
-4. Be concise, direct, helpful, and objective. Use Markdown formatting with bold headers and bullet points where helpful."#;
+4. Be concise, direct, helpful, and objective. Use natural paragraphs and occasional simple bullets when useful. Never output raw HTML or Markdown tables."#;
 
 /// Process raw articles from SQLite into structured AI story intelligence.
 pub async fn process_news_intelligence(
@@ -389,7 +405,80 @@ struct QnAResponse {
     decision_explanation: Option<String>,
 }
 
-/// Ask a question grounded strictly in local news articles or specific story context.
+fn parse_qna_response(content: &str) -> Result<QnAResponse, String> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return Err("Orbit received an empty answer.".to_string());
+    }
+    if let Ok(response) = serde_json::from_str::<QnAResponse>(trimmed) {
+        return Ok(response);
+    }
+
+    let json_candidate = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .map(|candidate| candidate.strip_suffix("```").unwrap_or(candidate).trim())
+        .unwrap_or(trimmed);
+    if json_candidate.starts_with('{') {
+        return serde_json::from_str::<QnAResponse>(json_candidate)
+            .map_err(|error| format!("Orbit received an unreadable answer: {error}"));
+    }
+
+    Ok(QnAResponse {
+        answer: trimmed.to_string(),
+        simple_explanation: None,
+        decision_explanation: None,
+    })
+}
+
+fn is_broad_overview_question(question: &str) -> bool {
+    let question = question.to_lowercase();
+    [
+        "summarize everything",
+        "summarise everything",
+        "summarize all",
+        "summarise all",
+        "what is happening",
+        "what's happening",
+        "what is going on",
+        "what's going on",
+        "latest news",
+        "trending news",
+        "what's trending",
+        "what is trending",
+        "top stories",
+        "news overview",
+        "give me an overview",
+        "brief me",
+    ]
+    .iter()
+    .any(|phrase| question.contains(phrase))
+}
+
+fn is_market_question(question: &str) -> bool {
+    let question = question.to_lowercase();
+    [
+        "market",
+        "stock",
+        "finance",
+        "financial",
+        "crypto",
+        "bitcoin",
+        "trading",
+        "economy",
+        "economic",
+        "share price",
+        "watchlist",
+    ]
+    .iter()
+    .any(|phrase| question.contains(phrase))
+}
+
+fn truncate_context(text: &str, max_chars: usize) -> String {
+    text.chars().take(max_chars).collect()
+}
+
+/// Answer from Orbit's local reporting and, when supported, current web search.
 pub async fn ask_question(
     db: &DbState,
     question: &str,
@@ -402,26 +491,99 @@ pub async fn ask_question(
 
     let tokens = tokenize(question_trimmed);
     let token_vec: Vec<String> = tokens.into_iter().collect();
+    let is_overview = is_broad_overview_question(question_trimmed);
+    let include_market_data = is_overview || is_market_question(question_trimmed);
 
-    let (matching_articles, provider, api_key, model) = {
+    let (matching_articles, story_clusters, provider, api_key, model, watchlist, finance_key) = {
         let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
-        let arts = search_articles_for_question(&conn, &token_vec, 6)?;
+        let mut arts = search_articles_for_question(&conn, &token_vec, 8)?;
+        let mut story_clusters = Vec::new();
+        if is_overview {
+            let recent_articles = get_articles(&conn, None, 14)?;
+            let mut article_ids: std::collections::HashSet<i64> =
+                arts.iter().map(|article| article.id).collect();
+            for article in recent_articles {
+                if article_ids.insert(article.id) {
+                    arts.push(article);
+                }
+            }
+
+            story_clusters = get_story_clusters_with_articles(&conn, None, None, None, 8)?;
+            for story in &story_clusters {
+                for article in &story.articles {
+                    if article_ids.insert(article.id) {
+                        arts.push(article.clone());
+                    }
+                }
+            }
+        }
+        arts.truncate(18);
         let prov = get_active_provider(&conn);
         let key = get_provider_api_key(&conn, prov);
         let mdl = get_provider_model(&conn, prov);
-        (arts, prov, key, mdl)
+        let finance_config = get_finance_config(&conn);
+        let finnhub_key = get_finnhub_key(&conn);
+        (
+            arts,
+            story_clusters,
+            prov,
+            key,
+            mdl,
+            finance_config.watchlist,
+            finnhub_key,
+        )
     };
 
-    if matching_articles.is_empty() && story_context.is_none() {
+    let quotes = if include_market_data && !watchlist.is_empty() {
+        let symbols = watchlist.into_iter().take(5).collect::<Vec<_>>();
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            get_watchlist_quotes(finance_key.as_deref(), &symbols),
+        )
+        .await
+        {
+            Ok(Ok(quotes)) => quotes
+                .into_iter()
+                .filter(|quote| quote.provider != "Sample Market Data")
+                .collect::<Vec<_>>(),
+            Ok(Err(error)) => {
+                eprintln!("[Orbit AI] Could not fetch live market context: {error}");
+                Vec::new()
+            }
+            Err(_) => {
+                eprintln!("[Orbit AI] Live market context request timed out.");
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    let market_data_sources = quotes
+        .iter()
+        .map(|quote| MarketDataSource {
+            symbol: quote.symbol.clone(),
+            provider: quote.provider.clone(),
+            timestamp: quote.timestamp.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    let has_web_search = provider == AiProvider::Groq && api_key.is_some();
+    if matching_articles.is_empty()
+        && story_context.is_none()
+        && !has_web_search
+        && market_data_sources.is_empty()
+    {
         return Ok(AiAnswer {
             question: question_trimmed.to_string(),
             answer: format!(
-                "No verified dispatches regarding \"{}\" were found in your local news feed. Orbit does not speculate or invent current events without source citations. Try refreshing live feeds or asking about recent technology, finance, or world news topics.",
+                "I couldn't find verified dispatches about \"{}\" in Orbit's local feed, and web search isn't available for the configured AI provider. Refresh your feeds or configure Groq to include current web sources.",
                 question_trimmed
             ),
-            simple_explanation: Some("No local news records match this question yet.".to_string()),
-            decision_explanation: Some("Check live RSS feeds for new dispatches on this subject.".to_string()),
+            simple_explanation: Some("There are no matching local reports, and live web search is not enabled.".to_string()),
+            decision_explanation: Some("Refresh Orbit's news feeds or configure Groq for current web search.".to_string()),
             sources: Vec::new(),
+            web_sources: Vec::new(),
+            market_data_sources,
             model_used: "local-grounding-check".to_string(),
             created_at: "Just now".to_string(),
         });
@@ -431,52 +593,97 @@ pub async fn ask_question(
     if let Some(ctx) = story_context {
         context_text.push_str(&format!("[Selected Story Focus]\n{}\n\n", ctx));
     }
+    for (i, story) in story_clusters.iter().enumerate() {
+        context_text.push_str(&format!(
+            "[Orbit AI Story {} | Category: {}]\nTitle: {}\nWhat happened: {}\nWhy it matters: {}\nWhat happens next: {}\n\n",
+            i + 1,
+            story.cluster.category,
+            truncate_context(&story.cluster.title, 220),
+            truncate_context(&story.cluster.what_happened, 500),
+            truncate_context(&story.cluster.why_it_matters, 400),
+            truncate_context(&story.cluster.what_happens_next, 300),
+        ));
+    }
     for (i, art) in matching_articles.iter().enumerate() {
         context_text.push_str(&format!(
             "[{}] Title: {}\nPublisher: {}\nSummary: {}\nPublished: {}\nURL: {}\n\n",
             i + 1,
-            art.title,
+            truncate_context(&art.title, 240),
             art.publisher.as_deref().unwrap_or("Wire"),
-            art.description.as_deref().unwrap_or(""),
+            truncate_context(art.description.as_deref().unwrap_or(""), 600),
             art.published_at.as_deref().unwrap_or("Recent"),
             art.article_url
         ));
     }
+    if !quotes.is_empty() {
+        context_text.push_str("[Live Market Watchlist Quotes]\n");
+        for quote in &quotes {
+            context_text.push_str(&format!(
+                "{} ({}) is {:.2}, change {:.2} ({:.2}%). Source: {}. Timestamp: {}.\n",
+                quote.symbol,
+                quote.name,
+                quote.price,
+                quote.change,
+                quote.change_percent,
+                quote.provider,
+                quote.timestamp,
+            ));
+        }
+        context_text.push('\n');
+    }
 
     if let Some(ref key) = api_key {
         let user_prompt = format!(
-            "User Question: \"{}\"\n\nVerified News Context:\n{}",
+            "User Question: \"{}\"\n\nOrbit Local News, Story, and Market Context:\n{}",
             question_trimmed, context_text
         );
 
-        match send_chat_completion_with_provider(
-            provider,
-            key,
-            &model,
-            SYSTEM_QUESTION_PROMPT,
-            &user_prompt,
-            true,
-            Some(1000),
-        )
-        .await
-        {
-            Ok(json_str) => {
-                if let Ok(parsed) = serde_json::from_str::<QnAResponse>(&json_str) {
-                    return Ok(AiAnswer {
-                        question: question_trimmed.to_string(),
-                        answer: parsed.answer,
-                        simple_explanation: parsed.simple_explanation,
-                        decision_explanation: parsed.decision_explanation,
-                        sources: matching_articles,
-                        model_used: model,
-                        created_at: "Just now".to_string(),
-                    });
-                }
-            }
-            Err(e) => {
-                eprintln!("[Orbit AI] Error in Q&A completion: {e}");
-            }
-        }
+        let (json_str, web_sources) = if provider == AiProvider::Groq {
+            let response = send_groq_responses_with_web_search(
+                key,
+                &model,
+                SYSTEM_QUESTION_WEB_PROMPT,
+                &user_prompt,
+                false,
+                Some(2048),
+            )
+            .await
+            .map_err(|error| {
+                eprintln!("[Orbit AI] Error in Q&A web search: {error}");
+                error
+            })?;
+            (response.text, response.citations)
+        } else {
+            let response = send_chat_completion_with_provider(
+                provider,
+                key,
+                &model,
+                SYSTEM_QUESTION_PROMPT,
+                &user_prompt,
+                true,
+                Some(1200),
+            )
+            .await
+            .map_err(|error| {
+                eprintln!("[Orbit AI] Error in Q&A completion: {error}");
+                error
+            })?;
+            (response, Vec::new())
+        };
+
+        let parsed = parse_qna_response(&json_str)
+            .map_err(|error| format!("{error} (model: {model})"))?;
+        return Ok(AiAnswer {
+            question: question_trimmed.to_string(),
+            answer: parsed.answer,
+            simple_explanation: parsed.simple_explanation,
+            decision_explanation: parsed.decision_explanation,
+            sources: matching_articles,
+            web_sources,
+            market_data_sources,
+            model_used: model,
+            created_at: "Just now".to_string(),
+        });
     }
 
     let primary = if !matching_articles.is_empty() {
@@ -484,6 +691,34 @@ pub async fn ask_question(
     } else {
         None
     };
+
+    if primary.is_none() && !quotes.is_empty() {
+        let market_summary = quotes
+            .iter()
+            .map(|quote| {
+                format!(
+                    "{}: {:.2}, {} {:.2} ({:.2}%)",
+                    quote.symbol,
+                    quote.price,
+                    if quote.change >= 0.0 { "up" } else { "down" },
+                    quote.change.abs(),
+                    quote.change_percent,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Ok(AiAnswer {
+            question: question_trimmed.to_string(),
+            answer: format!("Live watchlist quotes: {market_summary}. These are market snapshots, not investment advice."),
+            simple_explanation: Some(format!("Current quotes are available for {} watchlist symbols.", quotes.len())),
+            decision_explanation: Some("Check the quote timestamps and provider before making decisions.".to_string()),
+            sources: matching_articles,
+            web_sources: Vec::new(),
+            market_data_sources,
+            model_used: "local-market-data".to_string(),
+            created_at: "Just now".to_string(),
+        });
+    }
 
     let publisher = primary.and_then(|p| p.publisher.as_deref()).unwrap_or("Verified Wire");
     let title = primary.map(|p| p.title.as_str()).unwrap_or(story_context.unwrap_or("Recent Dispatch"));
@@ -498,6 +733,8 @@ pub async fn ask_question(
         simple_explanation: Some(format!("The most relevant report is \"{}\" from {}.", title, publisher)),
         decision_explanation: Some("Monitor related developments in subsequent briefings.".to_string()),
         sources: matching_articles,
+        web_sources: Vec::new(),
+        market_data_sources,
         model_used: "local-heuristic".to_string(),
         created_at: "Just now".to_string(),
     })

@@ -30,6 +30,7 @@ import {
   Square,
 } from "lucide-react";
 import { OrbitLogo } from "../icons";
+import { AnswerContent } from "./AnswerContent";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -437,6 +438,26 @@ export function ExpandedIsland({
     }
   };
 
+  const askQuestion = useCallback(async (query: string, speakResponse = false) => {
+    const text = query.trim();
+    if (!text || isAskingAi) return;
+    setIsAskingAi(true);
+    setAiAnswer(null);
+    setSyncError(null);
+    try {
+      const answer = await dbService.askQuestion(text);
+      setAiAnswer(answer);
+      setAnswerViewMode("direct");
+      if (speakResponse || ttsService.isAutoSpeakEnabled()) {
+        ttsService.speak(answer.answer);
+      }
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : "Ask Orbit failed.");
+    } finally {
+      setIsAskingAi(false);
+    }
+  }, [isAskingAi]);
+
   const handleQuestionSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const query = searchQuery.trim();
@@ -447,26 +468,12 @@ export function ExpandedIsland({
       return;
     }
 
-    setIsAskingAi(true);
-    setAiAnswer(null);
-    try {
-      const answer = await dbService.askQuestion(query);
-      setAiAnswer(answer);
-      setAnswerViewMode("direct");
-      if (ttsService.isAutoSpeakEnabled()) {
-        ttsService.speak(answer.answer);
-      }
-    } catch (err) {
-      setSyncError(err instanceof Error ? err.message : "Ask Orbit failed.");
-    } finally {
-      setIsAskingAi(false);
-    }
+    await askQuestion(query);
   };
 
   // ── Assistant Chat Handlers ───────────────────────────────────────────────
-  const handleSendAssistant = async (e: FormEvent) => {
-    e.preventDefault();
-    const text = assistantInput.trim();
+  const sendAssistantMessage = async (message: string, speakResponse = false) => {
+    const text = message.trim();
     if (!text || isSendingMessage) return;
 
     setIsSendingMessage(true);
@@ -498,7 +505,8 @@ export function ExpandedIsland({
       setMessages((prev) => [...prev, assistantMsg]);
       await loadConversations();
 
-      if (ttsService.isAutoSpeakEnabled()) {
+      const hasAssistantAnswer = reply.model !== "error-fallback" && reply.model !== "local-preview";
+      if (hasAssistantAnswer && (speakResponse || ttsService.isAutoSpeakEnabled())) {
         ttsService.speak(reply.content);
       }
     } catch (err) {
@@ -513,6 +521,11 @@ export function ExpandedIsland({
     } finally {
       setIsSendingMessage(false);
     }
+  };
+
+  const handleSendAssistant = async (e: FormEvent) => {
+    e.preventDefault();
+    await sendAssistantMessage(assistantInput);
   };
 
   const handleSelectConversation = async (id: number) => {
@@ -562,12 +575,21 @@ export function ExpandedIsland({
     } else {
       setMicActive(true);
       const started = await voiceService.startListening(
-        (transcript) => setSearchQuery(transcript),
+        (transcript) => {
+          setSearchQuery(transcript);
+          if (activeView !== "news") {
+            void askQuestion(transcript, true);
+          }
+        },
         (err) => {
           setSyncError(err);
+          if (err.startsWith("Automatic silence detection is unavailable") || err.startsWith("Automatic stop unavailable:")) {
+            return;
+          }
           setMicActive(false);
         },
-        () => setMicActive(false)
+        () => setMicActive(false),
+        { autoStopAfterSilenceMs: 1800 }
       );
       if (!started) setMicActive(false);
     }
@@ -580,12 +602,19 @@ export function ExpandedIsland({
     } else {
       setAssistantMicActive(true);
       const started = await voiceService.startListening(
-        (transcript) => setAssistantInput(transcript),
+        (transcript) => {
+          setAssistantInput(transcript);
+          void sendAssistantMessage(transcript, true);
+        },
         (err) => {
           setSyncError(err);
+          if (err.startsWith("Automatic silence detection is unavailable") || err.startsWith("Automatic stop unavailable:")) {
+            return;
+          }
           setAssistantMicActive(false);
         },
-        () => setAssistantMicActive(false)
+        () => setAssistantMicActive(false),
+        { autoStopAfterSilenceMs: 1800 }
       );
       if (!started) setAssistantMicActive(false);
     }
@@ -969,7 +998,7 @@ export function ExpandedIsland({
               <div className="flex items-center space-x-2">
                 <Badge variant="outline" className="text-[9px] bg-amber-400/15 text-amber-300 border-amber-400/30 gap-1">
                   <Bot className="w-2.5 h-2.5" />
-                  <span>Verified Answer</span>
+                  <span>Orbit Answer</span>
                 </Badge>
                 <span className="text-[11px] font-medium text-white truncate max-w-[300px]">
                   &ldquo;{aiAnswer.question}&rdquo;
@@ -1022,13 +1051,68 @@ export function ExpandedIsland({
               </div>
             </div>
 
-            <p className="text-xs text-neutral-200 leading-relaxed">
-              {answerViewMode === "simple"
-                ? aiAnswer.simple_explanation || aiAnswer.answer
-                : answerViewMode === "decision"
-                ? aiAnswer.decision_explanation || aiAnswer.answer
-                : aiAnswer.answer}
-            </p>
+            <div className="text-xs text-neutral-200 leading-relaxed">
+              <AnswerContent
+                content={
+                  answerViewMode === "simple"
+                    ? aiAnswer.simple_explanation || aiAnswer.answer
+                    : answerViewMode === "decision"
+                    ? aiAnswer.decision_explanation || aiAnswer.answer
+                    : aiAnswer.answer
+                }
+              />
+            </div>
+            {(aiAnswer.sources.length > 0 || aiAnswer.web_sources.length > 0 || aiAnswer.market_data_sources.length > 0) && (
+              <div className="space-y-2 border-t border-white/[0.07] pt-2">
+                {aiAnswer.sources.length > 0 && (
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-neutral-400">
+                      Orbit dispatches
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {aiAnswer.sources.slice(0, 6).map((source) => (
+                        <button
+                          key={source.id}
+                          type="button"
+                          onClick={() => handleOpenArticle(source.article_url)}
+                          className="inline-flex items-center gap-1 rounded border border-white/[0.06] bg-white/[0.04] px-1.5 py-0.5 text-[9px] text-amber-300 hover:bg-white/[0.08]"
+                        >
+                          {source.publisher || "Source"}
+                          <ArrowUpRight className="h-2.5 w-2.5 opacity-60" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {aiAnswer.web_sources.length > 0 && (
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-neutral-400">
+                      Fresh web sources
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {aiAnswer.web_sources.map((source) => (
+                        <button
+                          key={source.url}
+                          type="button"
+                          onClick={() => handleOpenArticle(source.url)}
+                          className="inline-flex items-center gap-1 rounded border border-sky-400/15 bg-sky-400/[0.05] px-1.5 py-0.5 text-[9px] text-sky-300 hover:bg-sky-400/[0.1]"
+                        >
+                          {source.title}
+                          <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {aiAnswer.market_data_sources.length > 0 && (
+                  <div className="text-[9px] text-neutral-400">
+                    Live market quotes: {aiAnswer.market_data_sources
+                      .map((source) => `${source.symbol} · ${source.provider}`)
+                      .join(", ")}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1316,7 +1400,9 @@ export function ExpandedIsland({
                             : "bg-card border border-border text-card-foreground rounded-bl-sm space-y-2"
                         }`}
                       >
-                        <div className="whitespace-pre-wrap">{m.content}</div>
+                        {isUser
+                          ? <div className="whitespace-pre-wrap">{m.content}</div>
+                          : <AnswerContent content={m.content} />}
 
                         {/* Grounded News Sources Tags */}
                         {sources.length > 0 && (

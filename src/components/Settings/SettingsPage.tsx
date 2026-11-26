@@ -160,7 +160,7 @@ export function SettingsPage({
   });
   const [providerModels, setProviderModels] = useState<{ [key: string]: string }>({
     openai: "gpt-4o-mini",
-    groq: "llama-3.3-70b-versatile",
+    groq: "openai/gpt-oss-20b",
     gemini: "gemini-1.5-flash",
   });
   const [showApiKey, setShowApiKey] = useState(false);
@@ -1142,7 +1142,7 @@ export function SettingsPage({
                     {
                       id: "groq",
                       name: "Groq",
-                      subtitle: "Llama 3.3 70B • Ultra-fast",
+                      subtitle: "GPT-OSS 20B • Ultra-fast",
                       badge: "High Speed",
                       badgeCls: "bg-orange-500/20 text-orange-300 border-orange-500/30",
                     },

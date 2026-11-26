@@ -10,7 +10,7 @@ Orbit supports three AI providers. Each stores its key independently so you can 
 
 | Provider | Recommended Model | Use Case |
 |---|---|---|
-| **Groq** | `llama-3.3-70b-versatile` | Fastest, cost-effective, news analysis |
+| **Groq** | `openai/gpt-oss-20b` | Fast question answering and news analysis |
 | **OpenAI** | `gpt-4o-mini` | Balanced quality and cost |
 | **Google Gemini** | `gemini-1.5-flash` | Long-context briefings |
 
@@ -24,7 +24,19 @@ Orbit supports three AI providers. Each stores its key independently so you can 
 6. Repeat for each provider you want available.
 7. Use the **Active Provider** toggle to switch which provider is used for all AI operations.
 
+Groq requests use its OpenAI-compatible Responses API endpoint (`/responses`).
+
 > **Security note:** API keys are passed directly to the Tauri backend over the IPC bridge and stored using the OS keychain. They are never exposed to the JavaScript runtime, the browser `window` object, or any log file.
+
+---
+
+## Ask Orbit
+
+Ask Orbit combines relevant local dispatches and AI story summaries. Broad news overviews also include the latest dispatches and live watchlist quotes when available. With Groq selected, Orbit can add current web search results; local dispatches, web sources, and live market quote providers are shown separately below the answer. Sample market-preview values are not used as live context.
+
+## Assistant Voice
+
+Click the microphone in the collapsed Orbit pill or in the Assistant view and speak. After about two seconds of silence, Orbit sends the transcription and speaks the response. Answers from the collapsed pill appear in a compact version of the island; click the close icon to dismiss it or the island header to open the full view. Click the microphone again to stop recording manually.
 
 ---
 

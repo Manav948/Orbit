@@ -7,8 +7,10 @@ import { SettingsPage } from "./components/Settings/SettingsPage";
 import { useDesktopStatus } from "./hooks/useDesktopStatus";
 import { usePreferences } from "./hooks/usePreferences";
 import { tauriBridge, isTauriEnvironment } from "./services/tauriBridge";
+import { dbService, type AiAnswer } from "./services/dbService";
+import { ttsService } from "./services/ttsService";
 
-export type IslandMode = "collapsed" | "expanded" | "settings";
+export type IslandMode = "collapsed" | "expanded" | "settings" | "voice-answer";
 
 export function App() {
   const { systemInfo, appStatus, windowGeometry } = useDesktopStatus();
@@ -33,7 +35,12 @@ export function App() {
 
   const [mode, setMode] = useState<IslandMode | null>(null);
   const [webNotice, setWebNotice] = useState(false);
+  const [voiceQuestion, setVoiceQuestion] = useState<string | null>(null);
+  const [voiceAnswer, setVoiceAnswer] = useState<AiAnswer | null>(null);
+  const [voiceAnswerLoading, setVoiceAnswerLoading] = useState(false);
+  const [voiceAnswerError, setVoiceAnswerError] = useState<string | null>(null);
   const startupModeApplied = useRef(false);
+  const voiceAnswerRequestId = useRef(0);
 
   // Transition helper that coordinates UI state and native OS window sizing
   const transitionTo = useCallback(async (newMode: IslandMode) => {
@@ -52,6 +59,38 @@ export function App() {
   const handleCollapse = () => transitionTo("collapsed");
   const handleOpenSettings = () => transitionTo("settings");
   const handleBackToIsland = () => transitionTo("collapsed");
+  const handleVoiceQuery = useCallback(async (question: string) => {
+    const trimmedQuestion = question.trim();
+    if (!trimmedQuestion) return;
+    const requestId = ++voiceAnswerRequestId.current;
+    setVoiceQuestion(trimmedQuestion);
+    setVoiceAnswer(null);
+    setVoiceAnswerError(null);
+    setVoiceAnswerLoading(true);
+    void transitionTo("voice-answer");
+    try {
+      const answer = await dbService.askQuestion(trimmedQuestion);
+      if (requestId !== voiceAnswerRequestId.current) return;
+      setVoiceAnswer(answer);
+      ttsService.speak(answer.answer);
+    } catch (error) {
+      if (requestId === voiceAnswerRequestId.current) {
+        setVoiceAnswerError(error instanceof Error ? error.message : "Orbit couldn't answer that question.");
+      }
+    } finally {
+      if (requestId === voiceAnswerRequestId.current) {
+        setVoiceAnswerLoading(false);
+      }
+    }
+  }, [transitionTo]);
+  const handleDismissVoiceAnswer = useCallback(() => {
+    voiceAnswerRequestId.current += 1;
+    setVoiceQuestion(null);
+    setVoiceAnswer(null);
+    setVoiceAnswerError(null);
+    setVoiceAnswerLoading(false);
+    void transitionTo("collapsed");
+  }, [transitionTo]);
 
   const handleCloseWindow = async () => {
     if (!isTauriEnvironment()) {
@@ -87,7 +126,7 @@ export function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (mode === "expanded" || mode === "settings") {
+        if (mode === "expanded" || mode === "settings" || mode === "voice-answer") {
           transitionTo("collapsed");
         }
       }
@@ -132,9 +171,17 @@ export function App() {
         )}
 
         {/* ── Mode 1: Collapsed Dynamic Island Pill ────────────────────────── */}
-        {mode === "collapsed" && (
+        {(mode === "collapsed" || mode === "voice-answer") && (
           <div className="animate-in fade-in zoom-in-95 duration-200">
-            <CollapsedIsland onExpand={handleExpand} />
+            <CollapsedIsland
+              onExpand={handleExpand}
+              onVoiceQuery={handleVoiceQuery}
+              voiceQuestion={mode === "voice-answer" ? voiceQuestion : null}
+              voiceAnswer={mode === "voice-answer" ? voiceAnswer : null}
+              voiceAnswerLoading={mode === "voice-answer" && voiceAnswerLoading}
+              voiceAnswerError={mode === "voice-answer" ? voiceAnswerError : null}
+              onDismissVoiceAnswer={handleDismissVoiceAnswer}
+            />
           </div>
         )}
 

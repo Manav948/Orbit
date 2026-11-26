@@ -16,12 +16,18 @@ export interface VoiceRecognitionStatus {
   error: string | null;
 }
 
+export interface VoiceRecognitionOptions {
+  autoStopAfterSilenceMs?: number;
+}
+
 class VoiceRecognitionService {
   private mediaRecorder: MediaRecorder | null = null;
   private mediaStream: MediaStream | null = null;
   private audioChunks: Blob[] = [];
   private isListening = false;
   private isTranscribing = false;
+  private silenceMonitorId: number | null = null;
+  private audioContext: AudioContext | null = null;
   private statusListeners: Array<(status: VoiceRecognitionStatus) => void> = [];
 
   private onTranscriptCallback: ((text: string, isFinal: boolean) => void) | null = null;
@@ -72,12 +78,13 @@ class VoiceRecognitionService {
 
   /**
    * Starts recording audio from the microphone.
-   * Call `stopListening()` when done to transcribe with Groq Whisper.
+   * Call `stopListening()` manually, or enable silence detection, to transcribe with Groq Whisper.
    */
   public async startListeningAsync(
     onTranscript: (text: string, isFinal: boolean) => void,
     onError: (errorMessage: string) => void,
-    onEnd?: () => void
+    onEnd?: () => void,
+    options: VoiceRecognitionOptions = {}
   ): Promise<boolean> {
     if (!this.isSupported()) {
       const msg = "Microphone audio recording is not supported in this runtime environment.";
@@ -175,6 +182,9 @@ class VoiceRecognitionService {
 
       recorder.start(250); // collect in 250ms chunks
       this.isListening = true;
+      if (options.autoStopAfterSilenceMs) {
+        this.startSilenceMonitor(stream, options.autoStopAfterSilenceMs);
+      }
       this.notify(null);
       return true;
     } catch (err: unknown) {
@@ -204,9 +214,10 @@ class VoiceRecognitionService {
   public startListening(
     onTranscript: (text: string, isFinal: boolean) => void,
     onError: (errorMessage: string) => void,
-    onEnd?: () => void
+    onEnd?: () => void,
+    options: VoiceRecognitionOptions = {}
   ): boolean {
-    this.startListeningAsync(onTranscript, onError, onEnd).catch((err) => {
+    this.startListeningAsync(onTranscript, onError, onEnd, options).catch((err) => {
       onError(err instanceof Error ? err.message : "Failed to start microphone.");
     });
     return true;
@@ -216,6 +227,7 @@ class VoiceRecognitionService {
    * Stop listening and trigger transcription of recorded speech.
    */
   public stopListening() {
+    this.stopSilenceMonitor();
     if (this.mediaRecorder && this.isListening) {
       try {
         if (this.mediaRecorder.state !== "inactive") {
@@ -229,6 +241,7 @@ class VoiceRecognitionService {
   }
 
   private cleanupStream() {
+    this.stopSilenceMonitor();
     if (this.mediaStream) {
       try {
         this.mediaStream.getTracks().forEach((track) => track.stop());
@@ -236,6 +249,77 @@ class VoiceRecognitionService {
         // ignore
       }
       this.mediaStream = null;
+    }
+  }
+
+  private startSilenceMonitor(stream: MediaStream, silenceTimeoutMs: number) {
+    if (typeof window.AudioContext === "undefined") {
+      this.onErrorCallback?.("Automatic silence detection is unavailable; tap the microphone again to send.");
+      return;
+    }
+
+    try {
+      const context = new window.AudioContext();
+      this.audioContext = context;
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      source.connect(analyser);
+      if (context.state === "suspended") {
+        void context.resume().catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : "Audio context could not resume.";
+          this.stopSilenceMonitor();
+          this.onErrorCallback?.(`Automatic stop unavailable: ${message}. Tap the microphone again to send.`);
+          this.notify(message);
+        });
+      }
+
+      const samples = new Uint8Array(analyser.fftSize);
+      let speechDetected = false;
+      let silenceStartedAt: number | null = null;
+
+      this.silenceMonitorId = window.setInterval(() => {
+        if (!this.isListening) {
+          this.stopSilenceMonitor();
+          return;
+        }
+
+        analyser.getByteTimeDomainData(samples);
+        const sumSquares = samples.reduce((sum, sample) => {
+          const normalized = (sample - 128) / 128;
+          return sum + normalized * normalized;
+        }, 0);
+        const volume = Math.sqrt(sumSquares / samples.length);
+
+        if (volume >= 0.02) {
+          speechDetected = true;
+          silenceStartedAt = null;
+        } else if (speechDetected) {
+          silenceStartedAt ??= Date.now();
+          if (Date.now() - silenceStartedAt >= silenceTimeoutMs) {
+            this.stopListening();
+          }
+        }
+      }, 120);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Audio silence detection failed.";
+      this.stopSilenceMonitor();
+      this.onErrorCallback?.(`Automatic stop unavailable: ${message}. Tap the microphone again to send.`);
+      this.notify(message);
+    }
+  }
+
+  private stopSilenceMonitor() {
+    if (this.silenceMonitorId !== null) {
+      window.clearInterval(this.silenceMonitorId);
+      this.silenceMonitorId = null;
+    }
+    if (this.audioContext) {
+      const context = this.audioContext;
+      this.audioContext = null;
+      void context.close().catch((err: unknown) => {
+        console.warn("[Voice] Failed to close silence monitor audio context:", err);
+      });
     }
   }
 }

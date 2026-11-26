@@ -137,6 +137,8 @@ export interface AiAnswer {
   simple_explanation?: string | null;
   decision_explanation?: string | null;
   sources: Article[];
+  web_sources: Array<{ title: string; url: string }>;
+  market_data_sources: Array<{ symbol: string; provider: string; timestamp: string }>;
   model_used: string;
   created_at: string;
 }
