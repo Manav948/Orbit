@@ -11,9 +11,9 @@ export function OrbitLogo(props: SVGProps<SVGSVGElement>) {
       strokeLinejoin="round"
       {...props}
     >
-      <circle cx="12" cy="12" r="2.5" className="fill-current stroke-current" />
-      <ellipse cx="12" cy="12" rx="10" ry="4.5" transform="rotate(-35 12 12)" className="stroke-current" />
-      <circle cx="19.8" cy="7" r="1.4" className="fill-current stroke-current" />
+      <path d="M9 4H7a3 3 0 0 0-3 3v2M15 4h2a3 3 0 0 1 3 3v2M20 15v2a3 3 0 0 1-3 3h-2M9 20H7a3 3 0 0 1-3-3v-2" />
+      <path d="m12 7 5 5-5 5-5-5 5-5Z" />
+      <circle cx="12" cy="12" r="1.25" className="fill-current stroke-current" />
     </svg>
   );
 }

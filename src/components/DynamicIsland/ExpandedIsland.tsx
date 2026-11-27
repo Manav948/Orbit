@@ -782,7 +782,7 @@ export function ExpandedIsland({
                         : "text-neutral-400 hover:text-white"
                   }`}
                 >
-                  {tab.icon}
+                  <span className={active ? accent.text : "text-muted-foreground"}>{tab.icon}</span>
                   <span>{tab.label}</span>
                 </Button>
               );
@@ -1227,7 +1227,7 @@ export function ExpandedIsland({
                           : "border-border bg-card hover:border-foreground/30 hover:bg-accent"
                     }`}
                   >
-                    <span className={`mt-0.5 shrink-0 ${selected ? "text-foreground" : "text-muted-foreground"}`}>{tool.icon}</span>
+                    <span className={`mt-0.5 shrink-0 ${selected ? accent.text : "text-muted-foreground"}`}>{tool.icon}</span>
                     <span className="min-w-0">
                         <span className="block truncate text-[10px] font-medium text-foreground">{tool.title}</span>
                         <span className="mt-0.5 block truncate text-[8px] text-muted-foreground">{tool.detail}</span>
@@ -1241,7 +1241,7 @@ export function ExpandedIsland({
               <section className="rounded-[6px] border border-border bg-card px-3 py-2.5" aria-label="Daily briefing">
                 <div className="mb-1.5 flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-[10px] font-semibold text-card-foreground">
-                    <BookOpen className="h-3 w-3 text-muted-foreground" />
+                    <BookOpen className={`h-3 w-3 ${accent.text}`} />
                     Daily Briefing
                   </div>
                   <span className="text-[8px] text-muted-foreground">{getTodayLabel()}</span>

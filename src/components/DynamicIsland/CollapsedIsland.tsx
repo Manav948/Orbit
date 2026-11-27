@@ -94,7 +94,7 @@ export function CollapsedIsland({
                 />
               }
             >
-              <Mic className="w-3.5 h-3.5" />
+              <Mic className={`w-3.5 h-3.5 ${micPulse ? "orbit-accent-icon" : ""}`} />
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={6}>
               <span>{micError || (micPulse ? "Listening... pause to ask Orbit" : "Ask Orbit by voice")}</span>

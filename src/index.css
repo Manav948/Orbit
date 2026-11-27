@@ -380,15 +380,30 @@ html[data-theme="dark"][data-accent] {
   --ring: #a1a1aa;
 }
 
-/* Keep the floating assistant's surfaces monochrome regardless of the
-   selected preference accent; utility focus uses restrained neutral contrast. */
-html[data-theme="dark"] .orbit-panel [class*="text-amber-"],
-html[data-theme="dark"] .orbit-panel [class*="text-sky-"],
-html[data-theme="dark"] .orbit-panel [class*="text-emerald-"],
-html[data-theme="dark"] .orbit-panel [class*="text-rose-"],
-html[data-theme="dark"] .orbit-panel [class*="text-violet-"],
-html[data-theme="dark"] .orbit-panel [class*="text-green-"] {
-  color: #c4c4c4 !important;
+/* Keep labels neutral, but let small icons carry the selected accent. */
+html[data-accent] .orbit-panel [class*="text-amber-"]:not(svg),
+html[data-accent] .orbit-panel [class*="text-sky-"]:not(svg),
+html[data-accent] .orbit-panel [class*="text-emerald-"]:not(svg),
+html[data-accent] .orbit-panel [class*="text-rose-"]:not(svg),
+html[data-accent] .orbit-panel [class*="text-violet-"]:not(svg),
+html[data-accent] .orbit-panel [class*="text-green-"]:not(svg) {
+  color: var(--muted-foreground) !important;
+}
+
+html[data-accent] .orbit-panel [class*="text-amber-"] svg,
+html[data-accent] .orbit-panel [class*="text-sky-"] svg,
+html[data-accent] .orbit-panel [class*="text-emerald-"] svg,
+html[data-accent] .orbit-panel [class*="text-rose-"] svg,
+html[data-accent] .orbit-panel [class*="text-violet-"] svg,
+html[data-accent] .orbit-panel [class*="text-green-"] svg,
+html[data-accent] .orbit-panel svg[class*="text-amber-"],
+html[data-accent] .orbit-panel svg[class*="text-sky-"],
+html[data-accent] .orbit-panel svg[class*="text-emerald-"],
+html[data-accent] .orbit-panel svg[class*="text-rose-"],
+html[data-accent] .orbit-panel svg[class*="text-violet-"],
+html[data-accent] .orbit-panel svg[class*="text-green-"],
+html[data-accent] .orbit-accent-icon {
+  color: var(--accent-text, var(--muted-foreground)) !important;
 }
 
 html[data-theme="dark"] .orbit-panel [class*="bg-amber-"],
@@ -407,15 +422,6 @@ html[data-theme="dark"] .orbit-panel [class*="border-rose-"],
 html[data-theme="dark"] .orbit-panel [class*="border-violet-"],
 html[data-theme="dark"] .orbit-panel [class*="border-green-"] {
   border-color: #4a4a4a !important;
-}
-
-html[data-theme="light"] .orbit-panel [class*="text-amber-"],
-html[data-theme="light"] .orbit-panel [class*="text-sky-"],
-html[data-theme="light"] .orbit-panel [class*="text-emerald-"],
-html[data-theme="light"] .orbit-panel [class*="text-rose-"],
-html[data-theme="light"] .orbit-panel [class*="text-violet-"],
-html[data-theme="light"] .orbit-panel [class*="text-green-"] {
-  color: #525252 !important;
 }
 
 html[data-theme="light"] .orbit-panel [class*="bg-amber-"],
