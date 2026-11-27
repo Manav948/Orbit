@@ -28,9 +28,6 @@ import {
   TrendingDown,
   DollarSign,
   Square,
-  CalendarDays,
-  StickyNote,
-  Timer,
   Activity,
 } from "lucide-react";
 import { OrbitLogo } from "../icons";
@@ -53,6 +50,7 @@ import {
   type Conversation,
   type ConversationMessage,
   type StockQuote,
+  type StockCandle,
 } from "../../services/dbService";
 import { isTauriEnvironment } from "../../services/tauriBridge";
 import { voiceService } from "../../services/voiceService";
@@ -75,7 +73,7 @@ type BriefingType = "morning" | "latest" | "overnight" | "technology" | "finance
 type BriefingDuration = "short" | "standard" | "detailed";
 type SortMode = "latest" | "importance";
 type DateFilter = "all" | "today" | "24h" | "7d";
-type HomeDetail = "briefing" | "calendar" | "notes" | "timer" | "system";
+type HomeDetail = "briefing" | "system";
 
 const PAGE_SIZE = 20;
 
@@ -153,9 +151,6 @@ export function ExpandedIsland({
   // ── Navigation & View ──────────────────────────────────────────────────────
   const [activeView, setActiveView] = useState<IslandViewMode>("home");
   const [homeDetail, setHomeDetail] = useState<HomeDetail>("briefing");
-  const [quickNote, setQuickNote] = useState("");
-  const [timerSeconds, setTimerSeconds] = useState(25 * 60);
-  const [timerRunning, setTimerRunning] = useState(false);
   const [newsFilter, setNewsFilter] = useState<NewsFilterCategory>("all");
   const [explanationMode, setExplanationMode] = useState<ExplanationMode>("simple");
 
@@ -359,20 +354,6 @@ export function ExpandedIsland({
       loadFinanceQuotes();
     }
   }, [activeView, loadStories, loadArticles, loadBriefings, loadConversations, loadFinanceQuotes]);
-
-  useEffect(() => {
-    if (!timerRunning) return;
-    const intervalId = window.setInterval(() => {
-      setTimerSeconds((seconds) => {
-        if (seconds <= 1) {
-          setTimerRunning(false);
-          return 0;
-        }
-        return seconds - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(intervalId);
-  }, [timerRunning]);
 
   // Scroll to bottom of assistant messages
   useEffect(() => {
@@ -713,27 +694,100 @@ export function ExpandedIsland({
     (sortMode !== "latest" ? 1 : 0) +
     (dateFilter !== "all" ? 1 : 0);
 
-  // SVG mini sparkline renderer
-  const renderSparkline = (points: number[], _isPositive: boolean) => {
-    if (!points || points.length < 2) return null;
-    const min = Math.min(...points);
-    const max = Math.max(...points);
-    const range = max - min || 1;
-    const width = 64;
-    const height = 24;
+  const renderCandlestickChart = (candles: StockCandle[]) => {
+    if (!candles.length) return null;
 
-    const coords = points.map((p, i) => {
-      const x = (i / (points.length - 1)) * width;
-      const y = height - ((p - min) / range) * (height - 4) - 2;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    });
-
-    const pathData = `M ${coords.join(" L ")}`;
-    const strokeColor = "#bdbdbd";
+    const width = 164;
+    const height = 68;
+    const plotTop = 6;
+    const plotBottom = 47;
+    const left = 5;
+    const plotRight = 126;
+    const plotWidth = plotRight - left;
+    const min = Math.min(...candles.map((candle) => candle.low));
+    const max = Math.max(...candles.map((candle) => candle.high));
+    const range = max - min || Math.max(Math.abs(max) * 0.02, 1);
+    const y = (price: number) => plotBottom - ((price - min) / range) * (plotBottom - plotTop);
+    const step = plotWidth / candles.length;
+    const bodyWidth = Math.min(8, step * 0.48);
+    const gridLines = [plotTop, (plotTop + plotBottom) / 2, plotBottom];
+    const priceLevels = [max, (max + min) / 2, min];
+    const firstDate = new Date(candles[0].timestamp * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const lastDate = new Date(candles[candles.length - 1].timestamp * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const formatAxisPrice = (price: number) => price >= 1000
+      ? `${(price / 1000).toFixed(1)}k`
+      : price < 1
+      ? price.toFixed(3)
+      : price.toFixed(2);
 
     return (
-      <svg width={width} height={height} className="shrink-0 overflow-visible">
-        <path d={pathData} fill="none" stroke={strokeColor} strokeWidth="1.5" strokeLinecap="round" />
+      <svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label={`OHLC candlestick chart with ${candles.length} trading sessions`}
+        className="shrink-0 overflow-visible"
+      >
+        <title>Daily open, high, low, and close prices</title>
+        {gridLines.map((lineY) => (
+          <line
+            key={lineY}
+            x1={left}
+            y1={lineY}
+            x2={plotRight}
+            y2={lineY}
+            stroke="var(--border)"
+            strokeWidth="0.7"
+            opacity="0.75"
+          />
+        ))}
+        {priceLevels.map((price, index) => (
+          <text
+            key={index}
+            x={plotRight + 5}
+            y={gridLines[index] + 2.5}
+            fontSize="7"
+            fill="var(--muted-foreground)"
+          >
+            {formatAxisPrice(price)}
+          </text>
+        ))}
+        {candles.map((candle, index) => {
+          const centerX = left + step * (index + 0.5);
+          const openY = y(candle.open);
+          const closeY = y(candle.close);
+          const rising = candle.close > candle.open;
+          const falling = candle.close < candle.open;
+          const color = rising ? "var(--market-up)" : falling ? "var(--market-down)" : "var(--muted-foreground)";
+          const bodyTop = Math.min(openY, closeY);
+          const bodyHeight = Math.max(1.5, Math.abs(openY - closeY));
+
+          return (
+            <g key={candle.timestamp} aria-label={`Open ${candle.open}, high ${candle.high}, low ${candle.low}, close ${candle.close}`}>
+              <line
+                x1={centerX}
+                y1={y(candle.high)}
+                x2={centerX}
+                y2={y(candle.low)}
+                stroke={color}
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+              <rect
+                x={centerX - bodyWidth / 2}
+                y={bodyTop}
+                width={bodyWidth}
+                height={bodyHeight}
+                fill={color}
+                rx="0.6"
+              />
+              <title>{`${new Date(candle.timestamp * 1000).toLocaleDateString()}: O ${candle.open}, H ${candle.high}, L ${candle.low}, C ${candle.close}`}</title>
+            </g>
+          );
+        })}
+        <text x={left} y="62" fontSize="7" fill="var(--muted-foreground)">{firstDate}</text>
+        <text x={plotRight} y="62" fontSize="7" fill="var(--muted-foreground)" textAnchor="end">{lastDate}</text>
       </svg>
     );
   };
@@ -1183,31 +1237,6 @@ export function ExpandedIsland({
                   action: () => setActiveView("finance"),
                 },
                 {
-                  id: "calendar",
-                  title: "Calendar",
-                  detail: "Today’s schedule",
-                  icon: <CalendarDays className="h-3.5 w-3.5" />,
-                  action: () => setHomeDetail("calendar"),
-                },
-                {
-                  id: "notes",
-                  title: "Notes",
-                  detail: quickNote.trim() ? "Quick note saved in this session" : "Capture a thought",
-                  icon: <StickyNote className="h-3.5 w-3.5" />,
-                  action: () => setHomeDetail("notes"),
-                },
-                {
-                  id: "timer",
-                  title: timerRunning ? "Timer running" : "Timer",
-                  detail: `${String(Math.floor(timerSeconds / 60)).padStart(2, "0")}:${String(timerSeconds % 60).padStart(2, "0")} focus session`,
-                  icon: <Timer className="h-3.5 w-3.5" />,
-                  action: () => {
-                    if (timerSeconds === 0) setTimerSeconds(25 * 60);
-                    setTimerRunning((running) => !running);
-                    setHomeDetail("timer");
-                  },
-                },
-                {
                   id: "system",
                   title: "System status",
                   detail: "Runtime and app health",
@@ -1270,47 +1299,6 @@ export function ExpandedIsland({
                     {isLoadingStories ? "Preparing your latest briefing…" : "Sync news sources to prepare your first briefing."}
                   </p>
                 )}
-              </section>
-            )}
-
-            {homeDetail === "calendar" && (
-              <section className="rounded-[6px] border border-border bg-card px-3 py-2.5">
-                <div>
-                  <p className="text-[10px] font-medium text-card-foreground">Calendar integration is not configured</p>
-                  <p className="mt-1 text-[9px] text-muted-foreground">Upcoming events will appear here when a calendar source is connected.</p>
-                </div>
-              </section>
-            )}
-
-            {homeDetail === "notes" && (
-              <section className="rounded-[6px] border border-border bg-card p-2.5">
-                <label htmlFor="orbit-quick-note" className="mb-1.5 block text-[10px] font-medium text-card-foreground">Quick note · this session</label>
-                <textarea
-                  id="orbit-quick-note"
-                  value={quickNote}
-                  onChange={(event) => setQuickNote(event.target.value)}
-                  placeholder="Write a thought to keep in view…"
-                  className="h-12 w-full resize-none rounded-[5px] border border-input bg-background px-2 py-1.5 text-[9px] text-foreground placeholder:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring"
-                />
-              </section>
-            )}
-
-            {homeDetail === "timer" && (
-              <section className="flex items-center justify-between rounded-[6px] border border-border bg-card px-3 py-2">
-                <div>
-                  <p className="text-[10px] font-medium text-card-foreground">Focus timer</p>
-                  <p className="mt-1 font-mono text-[12px] tabular-nums text-card-foreground">
-                    {String(Math.floor(timerSeconds / 60)).padStart(2, "0")}:{String(timerSeconds % 60).padStart(2, "0")}
-                  </p>
-                </div>
-                <div className="flex gap-1.5">
-                  <Button variant="outline" size="xs" onClick={() => setTimerRunning((running) => !running)} className="h-6 rounded-[5px] border-border bg-secondary text-[9px] text-secondary-foreground hover:bg-accent">
-                    {timerRunning ? "Pause" : timerSeconds === 0 ? "Start again" : "Resume"}
-                  </Button>
-                  <Button variant="outline" size="xs" onClick={() => { setTimerRunning(false); setTimerSeconds(25 * 60); }} className="h-6 rounded-[5px] border-border bg-secondary text-[9px] text-secondary-foreground hover:bg-accent">
-                    Reset
-                  </Button>
-                </div>
               </section>
             )}
 
@@ -1910,7 +1898,7 @@ export function ExpandedIsland({
 
                       {/* Sparkline mini-chart */}
                       <div className="hidden sm:block shrink-0">
-                        {renderSparkline(q.sparkline, isPositive)}
+                        {renderCandlestickChart(q.candles)}
                       </div>
 
                       {/* Price & Change Badge */}

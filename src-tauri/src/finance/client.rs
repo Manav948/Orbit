@@ -6,7 +6,16 @@
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Candle {
+    pub timestamp: i64,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StockQuote {
@@ -23,6 +32,7 @@ pub struct StockQuote {
     pub is_delayed: bool,
     pub provider: String,
     pub sparkline: Vec<f64>,
+    pub candles: Vec<Candle>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,6 +162,7 @@ struct YahooChartContent {
 #[derive(Debug, Deserialize)]
 struct YahooChartResult {
     meta: Option<YahooChartMeta>,
+    timestamp: Option<Vec<i64>>,
     indicators: Option<YahooChartIndicators>,
 }
 
@@ -159,6 +170,8 @@ struct YahooChartResult {
 struct YahooChartMeta {
     #[serde(rename = "regularMarketPrice")]
     regular_market_price: Option<f64>,
+    #[serde(rename = "regularMarketOpen")]
+    regular_market_open: Option<f64>,
     #[serde(rename = "chartPreviousClose")]
     chart_previous_close: Option<f64>,
     #[serde(rename = "regularMarketDayHigh")]
@@ -178,10 +191,52 @@ struct YahooChartIndicators {
 
 #[derive(Debug, Deserialize)]
 struct YahooChartQuoteIndicator {
+    open: Option<Vec<Option<f64>>>,
+    high: Option<Vec<Option<f64>>>,
+    low: Option<Vec<Option<f64>>>,
     close: Option<Vec<Option<f64>>>,
 }
 
-/// Fetches real live market quote and 5-day historical sparkline directly from public exchange data.
+fn build_candles(timestamps: &[i64], quote: &YahooChartQuoteIndicator) -> Vec<Candle> {
+    let (Some(opens), Some(highs), Some(lows), Some(closes)) =
+        (&quote.open, &quote.high, &quote.low, &quote.close)
+    else {
+        return Vec::new();
+    };
+
+    timestamps
+        .iter()
+        .enumerate()
+        .filter_map(|(index, timestamp)| {
+            let (Some(open), Some(high), Some(low), Some(close)) = (
+                opens.get(index).copied().flatten(),
+                highs.get(index).copied().flatten(),
+                lows.get(index).copied().flatten(),
+                closes.get(index).copied().flatten(),
+            ) else {
+                return None;
+            };
+
+            if ![open, high, low, close].iter().all(|value| value.is_finite())
+                || high < open.max(close)
+                || low > open.min(close)
+                || low > high
+            {
+                return None;
+            }
+
+            Some(Candle {
+                timestamp: *timestamp,
+                open: (open * 100.0).round() / 100.0,
+                high: (high * 100.0).round() / 100.0,
+                low: (low * 100.0).round() / 100.0,
+                close: (close * 100.0).round() / 100.0,
+            })
+        })
+        .collect()
+}
+
+/// Fetches a live quote and up to five days of daily OHLC candles.
 async fn fetch_yahoo_quote(client: &reqwest::Client, sym: &str) -> Option<StockQuote> {
     let url = format!("https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&range=5d");
     let resp = client
@@ -200,24 +255,44 @@ async fn fetch_yahoo_quote(client: &reqwest::Client, sym: &str) -> Option<StockQ
     let meta = item.meta?;
     let price = meta.regular_market_price?;
     let prev_close = meta.chart_previous_close.unwrap_or(price);
+    let market_open = meta.regular_market_open.unwrap_or(prev_close);
     let high = meta.regular_market_day_high.unwrap_or(price);
     let low = meta.regular_market_day_low.unwrap_or(price);
 
     let change = price - prev_close;
     let change_percent = if prev_close > 0.0 { (change / prev_close) * 100.0 } else { 0.0 };
 
-    let mut sparkline: Vec<f64> = Vec::new();
-    if let Some(ind) = item.indicators {
-        if let Some(q_list) = ind.quote {
-            if let Some(q_first) = q_list.into_iter().next() {
-                if let Some(closes) = q_first.close {
-                    for c in closes.into_iter().flatten() {
-                        sparkline.push((c * 100.0).round() / 100.0);
-                    }
-                }
-            }
-        }
+    let mut candles = match (
+        item.timestamp.as_deref(),
+        item.indicators
+            .as_ref()
+            .and_then(|indicators| indicators.quote.as_ref())
+            .and_then(|quotes| quotes.first()),
+    ) {
+        (Some(timestamps), Some(quote)) => build_candles(timestamps, quote),
+        _ => Vec::new(),
+    };
+    if candles.is_empty() {
+        let timestamp = item
+            .timestamp
+            .as_ref()
+            .and_then(|timestamps| timestamps.last())
+            .copied()
+            .unwrap_or_else(|| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or(Duration::ZERO)
+                    .as_secs() as i64
+            });
+        candles.push(Candle {
+            timestamp,
+            open: market_open,
+            high: high.max(market_open).max(price),
+            low: low.min(market_open).min(price),
+            close: price,
+        });
     }
+    let mut sparkline: Vec<f64> = candles.iter().map(|candle| candle.close).collect();
     if sparkline.is_empty() {
         sparkline = vec![prev_close, low, (high + low) / 2.0, high, price];
     } else {
@@ -236,12 +311,13 @@ async fn fetch_yahoo_quote(client: &reqwest::Client, sym: &str) -> Option<StockQ
         change_percent: (change_percent * 100.0).round() / 100.0,
         high: (high * 100.0).round() / 100.0,
         low: (low * 100.0).round() / 100.0,
-        open: prev_close,
+        open: market_open,
         previous_close: (prev_close * 100.0).round() / 100.0,
         timestamp: "Real-time Exchange Data".to_string(),
         is_delayed: false,
         provider: "Live Exchange Feed".to_string(),
         sparkline,
+        candles,
     })
 }
 
@@ -268,6 +344,19 @@ pub async fn get_single_quote_with_client(
                             let change = finnhub.d.unwrap_or(price - pc);
                             let change_percent = finnhub.dp.unwrap_or((change / pc) * 100.0);
                             let sparkline = vec![pc, open, low, (high + low) / 2.0, high, price];
+                            let candles = fetch_yahoo_quote(client, &sym)
+                                .await
+                                .map(|quote| quote.candles)
+                                .filter(|candles| !candles.is_empty())
+                                .unwrap_or_else(|| {
+                                    vec![Candle {
+                                        timestamp: finnhub.t.unwrap_or_default(),
+                                        open,
+                                        high: high.max(open).max(price),
+                                        low: low.min(open).min(price),
+                                        close: price,
+                                    }]
+                                });
 
                             return StockQuote {
                                 symbol: sym.clone(),
@@ -283,6 +372,7 @@ pub async fn get_single_quote_with_client(
                                 is_delayed: false,
                                 provider: "Finnhub Live".to_string(),
                                 sparkline,
+                                candles,
                             };
                         }
                     }
@@ -379,6 +469,26 @@ fn generate_sample_quote(symbol: &str) -> StockQuote {
         high,
         base_price,
     ];
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_secs() as i64;
+    let candles = sparkline
+        .windows(2)
+        .enumerate()
+        .map(|(index, prices)| {
+            let open = prices[0];
+            let close = prices[1];
+            let spread = open.abs().max(close.abs()) * 0.003;
+            Candle {
+                timestamp: now - ((sparkline.len() - index - 1) as i64 * 86_400),
+                open,
+                high: open.max(close) + spread,
+                low: (open.min(close) - spread).max(0.0),
+                close,
+            }
+        })
+        .collect();
 
     StockQuote {
         symbol: symbol.to_string(),
@@ -394,5 +504,30 @@ fn generate_sample_quote(symbol: &str) -> StockQuote {
         is_delayed: true,
         provider: "Sample Market Data".to_string(),
         sparkline,
+        candles,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_only_complete_valid_ohlc_candles() {
+        let quote = YahooChartQuoteIndicator {
+            open: Some(vec![Some(10.0), Some(12.0)]),
+            high: Some(vec![Some(13.0), Some(11.0)]),
+            low: Some(vec![Some(9.0), Some(10.0)]),
+            close: Some(vec![Some(12.0), Some(10.5)]),
+        };
+
+        let candles = build_candles(&[100, 200], &quote);
+
+        assert_eq!(candles.len(), 1);
+        assert_eq!(candles[0].timestamp, 100);
+        assert_eq!(candles[0].open, 10.0);
+        assert_eq!(candles[0].high, 13.0);
+        assert_eq!(candles[0].low, 9.0);
+        assert_eq!(candles[0].close, 12.0);
     }
 }

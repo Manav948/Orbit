@@ -186,6 +186,15 @@ export interface StockQuote {
   is_delayed: boolean;
   provider: string;
   sparkline: number[];
+  candles: StockCandle[];
+}
+
+export interface StockCandle {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
 }
 
 export interface FinanceConfig {
