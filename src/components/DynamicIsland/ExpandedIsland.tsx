@@ -28,6 +28,10 @@ import {
   TrendingDown,
   DollarSign,
   Square,
+  CalendarDays,
+  StickyNote,
+  Timer,
+  Activity,
 } from "lucide-react";
 import { OrbitLogo } from "../icons";
 import { AnswerContent } from "./AnswerContent";
@@ -64,13 +68,14 @@ interface ExpandedIslandProps {
   accent: AccentThemeConfig;
 }
 
-type IslandViewMode = "intelligence" | "assistant" | "briefings" | "finance" | "news";
+type IslandViewMode = "home" | "intelligence" | "assistant" | "briefings" | "finance" | "news";
 type NewsFilterCategory = "all" | "world" | "business" | "finance" | "technology" | "ai" | "science" | "cybersecurity";
 type ExplanationMode = "simple" | "detailed" | "decision";
 type BriefingType = "morning" | "latest" | "overnight" | "technology" | "finance" | "world";
 type BriefingDuration = "short" | "standard" | "detailed";
 type SortMode = "latest" | "importance";
 type DateFilter = "all" | "today" | "24h" | "7d";
+type HomeDetail = "briefing" | "calendar" | "notes" | "timer" | "system";
 
 const PAGE_SIZE = 20;
 
@@ -146,7 +151,11 @@ export function ExpandedIsland({
   accent,
 }: ExpandedIslandProps) {
   // ── Navigation & View ──────────────────────────────────────────────────────
-  const [activeView, setActiveView] = useState<IslandViewMode>("intelligence");
+  const [activeView, setActiveView] = useState<IslandViewMode>("home");
+  const [homeDetail, setHomeDetail] = useState<HomeDetail>("briefing");
+  const [quickNote, setQuickNote] = useState("");
+  const [timerSeconds, setTimerSeconds] = useState(25 * 60);
+  const [timerRunning, setTimerRunning] = useState(false);
   const [newsFilter, setNewsFilter] = useState<NewsFilterCategory>("all");
   const [explanationMode, setExplanationMode] = useState<ExplanationMode>("simple");
 
@@ -337,7 +346,7 @@ export function ExpandedIsland({
 
   // ── Reload when active view changes
   useEffect(() => {
-    if (activeView === "intelligence") {
+    if (activeView === "home" || activeView === "intelligence") {
       loadStories();
     } else if (activeView === "news") {
       loadArticles(true);
@@ -350,6 +359,20 @@ export function ExpandedIsland({
       loadFinanceQuotes();
     }
   }, [activeView, loadStories, loadArticles, loadBriefings, loadConversations, loadFinanceQuotes]);
+
+  useEffect(() => {
+    if (!timerRunning) return;
+    const intervalId = window.setInterval(() => {
+      setTimerSeconds((seconds) => {
+        if (seconds <= 1) {
+          setTimerRunning(false);
+          return 0;
+        }
+        return seconds - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [timerRunning]);
 
   // Scroll to bottom of assistant messages
   useEffect(() => {
@@ -691,7 +714,7 @@ export function ExpandedIsland({
     (dateFilter !== "all" ? 1 : 0);
 
   // SVG mini sparkline renderer
-  const renderSparkline = (points: number[], isPositive: boolean) => {
+  const renderSparkline = (points: number[], _isPositive: boolean) => {
     if (!points || points.length < 2) return null;
     const min = Math.min(...points);
     const max = Math.max(...points);
@@ -706,7 +729,7 @@ export function ExpandedIsland({
     });
 
     const pathData = `M ${coords.join(" L ")}`;
-    const strokeColor = isPositive ? "#34d399" : "#f87171";
+    const strokeColor = "#bdbdbd";
 
     return (
       <svg width={width} height={height} className="shrink-0 overflow-visible">
@@ -718,33 +741,30 @@ export function ExpandedIsland({
   return (
     <Card
       onClick={(e) => e.stopPropagation()}
-      className="w-[680px] h-[520px] p-0 gap-0 bg-[#07080b]/98 border-white/[0.09] hover:border-white/[0.13] rounded-3xl overflow-hidden backdrop-blur-2xl transition-colors duration-300 text-neutral-200 select-none ring-1 ring-white/[0.04] flex flex-col"
+      className="orbit-panel w-[680px] h-[520px] p-0 gap-0 bg-background border-border hover:border-foreground/30 rounded-[10px] overflow-hidden transition-colors duration-150 text-foreground select-none flex flex-col"
     >
       {/* ── Top Header Bar ──────────────────────────────────────────────── */}
       <div
         data-tauri-drag-region
-        className="flex items-center justify-between px-5 pt-3 pb-2 cursor-move bg-gradient-to-b from-white/[0.02] to-transparent border-b border-white/[0.06] shrink-0"
+        className="flex items-center justify-between px-4 pt-2.5 pb-2 cursor-move bg-background border-b border-border shrink-0"
       >
         {/* Brand & View Mode Toggle */}
         <div className="flex items-center space-x-3" data-tauri-drag-region="false">
           <div className="flex items-center space-x-2 pointer-events-none">
-            <div
-              className={`w-6 h-6 rounded-full ${accent.bgSubtle} border ${accent.borderSubtle} flex items-center justify-center ${accent.text} shadow-sm ${accent.glow}`}
-            >
+            <div className="w-6 h-6 rounded-[5px] bg-muted border border-border flex items-center justify-center text-foreground">
               <OrbitLogo className="w-3.5 h-3.5" />
             </div>
-            <span className="font-semibold text-xs tracking-tight text-white">
-              Orbit
-            </span>
+            <span className="font-semibold text-xs tracking-tight text-foreground">Orbit</span>
           </div>
 
           <Separator orientation="vertical" className="h-3.5 bg-white/[0.1]" />
 
-          {/* 5-Mode Switcher */}
-          <div className="flex items-center space-x-0.5 bg-black/40 p-0.5 rounded-xl border border-white/[0.06]">
+          {/* Utility and content views */}
+          <div className="flex items-center space-x-0.5 bg-background p-0.5 rounded-[6px] border border-border">
             {[
-              { id: "intelligence" as IslandViewMode, label: "AI Stories", icon: <Sparkles className="w-2.5 h-2.5 text-amber-400" /> },
-              { id: "assistant" as IslandViewMode, label: "Assistant", icon: <Bot className="w-2.5 h-2.5 text-sky-400" /> },
+              { id: "home" as IslandViewMode, label: "Home", icon: <Activity className="w-2.5 h-2.5" /> },
+              { id: "intelligence" as IslandViewMode, label: "AI Stories", icon: <Sparkles className="w-2.5 h-2.5" /> },
+              { id: "assistant" as IslandViewMode, label: "Assistant", icon: <Bot className="w-2.5 h-2.5" /> },
               { id: "briefings" as IslandViewMode, label: "Briefings", icon: <BookOpen className="w-2.5 h-2.5" /> },
               { id: "finance" as IslandViewMode, label: "Markets", icon: <TrendingUp className="w-2.5 h-2.5 text-emerald-400" /> },
               { id: "news" as IslandViewMode, label: "Dispatches", icon: <Radio className="w-2.5 h-2.5" /> },
@@ -758,8 +778,8 @@ export function ExpandedIsland({
                   onClick={() => setActiveView(tab.id)}
                   className={`h-5 px-2 text-[10px] rounded-lg gap-1 ${
                     active
-                      ? `${accent.bgSubtle} ${accent.textLight} border ${accent.borderSubtle} font-medium`
-                      : "text-neutral-400 hover:text-white"
+                      ? "bg-secondary text-secondary-foreground border border-border font-medium"
+                        : "text-neutral-400 hover:text-white"
                   }`}
                 >
                   {tab.icon}
@@ -780,7 +800,7 @@ export function ExpandedIsland({
                   size="icon-xs"
                   disabled={isSyncing || isProcessingAi}
                   onClick={
-                    activeView === "intelligence"
+                    activeView === "intelligence" || activeView === "home"
                       ? handleProcessAiIntelligence
                       : activeView === "finance"
                       ? loadFinanceQuotes
@@ -797,7 +817,7 @@ export function ExpandedIsland({
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing || isProcessingAi || isLoadingQuotes ? "animate-spin" : ""}`} />
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {activeView === "intelligence" ? "Re-process AI Intelligence" : activeView === "finance" ? "Refresh Quotes" : "Sync RSS Feeds"}
+              {activeView === "intelligence" || activeView === "home" ? "Re-process AI Intelligence" : activeView === "finance" ? "Refresh Quotes" : "Sync RSS Feeds"}
             </TooltipContent>
           </Tooltip>
 
@@ -861,7 +881,7 @@ export function ExpandedIsland({
               <p className="text-[9px] text-neutral-500 uppercase tracking-widest">{getTodayLabel()}</p>
               <p className="text-xs font-semibold text-white leading-tight">
                 {getGreeting()} —{" "}
-                <span className={accent.textLight}>
+                <span className="text-muted-foreground">
                   {stories.length > 0 ? `${stories.length} stories synthesized` : "Ready for your intelligence stream"}
                 </span>
               </p>
@@ -887,7 +907,7 @@ export function ExpandedIsland({
         {activeView !== "assistant" && activeView !== "finance" && (
           <form
             onSubmit={handleQuestionSubmit}
-            className={`group relative flex items-center bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.14] rounded-2xl px-3.5 py-1.5 shadow-inner transition-all duration-200 shrink-0 ${accent.ring}`}
+            className="group relative flex items-center bg-background border border-input hover:border-foreground/30 focus-within:border-ring rounded-[6px] px-3 py-1.5 transition-colors duration-150 shrink-0"
           >
             <Search className={`w-3.5 h-3.5 text-neutral-400 group-focus-within:${accent.text} mr-2.5 shrink-0 transition-colors`} />
 
@@ -992,7 +1012,7 @@ export function ExpandedIsland({
         )}
 
         {/* ── CONVERSATIONAL Q&A RESULT (In Stories View) ──────────────── */}
-        {aiAnswer && activeView === "intelligence" && (
+        {aiAnswer && (activeView === "intelligence" || activeView === "home") && (
           <div className="p-3.5 rounded-2xl bg-[#0e1017] border border-amber-400/30 shadow-lg space-y-2.5 animate-in fade-in slide-in-from-top-2 duration-200 shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
@@ -1067,7 +1087,7 @@ export function ExpandedIsland({
                 {aiAnswer.sources.length > 0 && (
                   <div className="space-y-1">
                     <span className="text-[9px] font-semibold uppercase tracking-wider text-neutral-400">
-                      Orbit dispatches
+                      Orbit sources
                     </span>
                     <div className="flex flex-wrap gap-1">
                       {aiAnswer.sources.slice(0, 6).map((source) => (
@@ -1112,6 +1132,196 @@ export function ExpandedIsland({
                   </div>
                 )}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* ── QUICK SPACE: utility grid and focused briefing card ───────── */}
+        {activeView === "home" && (
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-0.5">
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                {
+                  id: "ask",
+                  title: "Ask Orbit",
+                  detail: "Search, reason, get an answer.",
+                  icon: <Sparkles className="h-3.5 w-3.5" />,
+                  action: () => setActiveView("assistant"),
+                },
+                {
+                  id: "briefing",
+                  title: "News briefing",
+                  detail: briefings.length ? `${briefings.length} briefings available` : "Your daily digest",
+                  icon: <BookOpen className="h-3.5 w-3.5" />,
+                  action: () => setActiveView("briefings"),
+                },
+                {
+                  id: "world",
+                  title: "World news",
+                  detail: "Global headlines, concise.",
+                  icon: <Radio className="h-3.5 w-3.5" />,
+                  action: () => {
+                    setNewsFilter("world");
+                    setActiveView("news");
+                  },
+                },
+                {
+                  id: "technology",
+                  title: "Technology & AI",
+                  detail: "Models, hardware, research.",
+                  icon: <Bot className="h-3.5 w-3.5" />,
+                  action: () => {
+                    setNewsFilter("technology");
+                    setActiveView("news");
+                  },
+                },
+                {
+                  id: "finance",
+                  title: "Finance snapshot",
+                  detail: quotes.length ? `${quotes.length} watchlist assets` : "Markets at a glance",
+                  icon: <TrendingUp className="h-3.5 w-3.5" />,
+                  action: () => setActiveView("finance"),
+                },
+                {
+                  id: "calendar",
+                  title: "Calendar",
+                  detail: "Today’s schedule",
+                  icon: <CalendarDays className="h-3.5 w-3.5" />,
+                  action: () => setHomeDetail("calendar"),
+                },
+                {
+                  id: "notes",
+                  title: "Notes",
+                  detail: quickNote.trim() ? "Quick note saved in this session" : "Capture a thought",
+                  icon: <StickyNote className="h-3.5 w-3.5" />,
+                  action: () => setHomeDetail("notes"),
+                },
+                {
+                  id: "timer",
+                  title: timerRunning ? "Timer running" : "Timer",
+                  detail: `${String(Math.floor(timerSeconds / 60)).padStart(2, "0")}:${String(timerSeconds % 60).padStart(2, "0")} focus session`,
+                  icon: <Timer className="h-3.5 w-3.5" />,
+                  action: () => {
+                    if (timerSeconds === 0) setTimerSeconds(25 * 60);
+                    setTimerRunning((running) => !running);
+                    setHomeDetail("timer");
+                  },
+                },
+                {
+                  id: "system",
+                  title: "System status",
+                  detail: "Runtime and app health",
+                  icon: <Activity className="h-3.5 w-3.5" />,
+                  action: () => setHomeDetail("system"),
+                },
+              ].map((tool) => {
+                const selected = homeDetail === tool.id || (tool.id === "briefing" && homeDetail === "briefing");
+                return (
+                  <button
+                    key={tool.id}
+                    type="button"
+                    onClick={tool.action}
+                    className={`group flex h-[54px] min-w-0 items-start gap-2 rounded-[6px] border px-2.5 py-2 text-left transition-colors duration-150 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ring ${
+                      selected
+                        ? "border-foreground/40 bg-secondary"
+                          : "border-border bg-card hover:border-foreground/30 hover:bg-accent"
+                    }`}
+                  >
+                    <span className={`mt-0.5 shrink-0 ${selected ? "text-foreground" : "text-muted-foreground"}`}>{tool.icon}</span>
+                    <span className="min-w-0">
+                        <span className="block truncate text-[10px] font-medium text-foreground">{tool.title}</span>
+                        <span className="mt-0.5 block truncate text-[8px] text-muted-foreground">{tool.detail}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {homeDetail === "briefing" && (
+              <section className="rounded-[6px] border border-border bg-card px-3 py-2.5" aria-label="Daily briefing">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-[10px] font-semibold text-card-foreground">
+                    <BookOpen className="h-3 w-3 text-muted-foreground" />
+                    Daily Briefing
+                  </div>
+                  <span className="text-[8px] text-muted-foreground">{getTodayLabel()}</span>
+                </div>
+                {stories[0] ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => stories[0].articles[0] && handleOpenArticle(stories[0].articles[0].article_url)}
+                      className="block max-w-full truncate text-left text-[10px] font-medium text-card-foreground hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    >
+                      {stories[0].cluster.title}
+                    </button>
+                    <p className="mt-1 line-clamp-2 text-[9px] leading-relaxed text-muted-foreground">
+                      {stories[0].cluster.simple_summary || stories[0].cluster.what_happened}
+                    </p>
+                    <div className="mt-1.5 flex items-center justify-between text-[8px] text-muted-foreground">
+                      <span>{stories[0].articles[0]?.publisher || "Orbit news sources"} · {formatTime(stories[0].cluster.created_at)}</span>
+                      <button type="button" onClick={() => setActiveView("briefings")} className="text-foreground hover:underline">
+                        Read briefing <ExternalLink className="ml-0.5 inline h-2.5 w-2.5" />
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-[9px] text-muted-foreground">
+                    {isLoadingStories ? "Preparing your latest briefing…" : "Sync news sources to prepare your first briefing."}
+                  </p>
+                )}
+              </section>
+            )}
+
+            {homeDetail === "calendar" && (
+              <section className="rounded-[6px] border border-border bg-card px-3 py-2.5">
+                <div>
+                  <p className="text-[10px] font-medium text-card-foreground">Calendar integration is not configured</p>
+                  <p className="mt-1 text-[9px] text-muted-foreground">Upcoming events will appear here when a calendar source is connected.</p>
+                </div>
+              </section>
+            )}
+
+            {homeDetail === "notes" && (
+              <section className="rounded-[6px] border border-border bg-card p-2.5">
+                <label htmlFor="orbit-quick-note" className="mb-1.5 block text-[10px] font-medium text-card-foreground">Quick note · this session</label>
+                <textarea
+                  id="orbit-quick-note"
+                  value={quickNote}
+                  onChange={(event) => setQuickNote(event.target.value)}
+                  placeholder="Write a thought to keep in view…"
+                  className="h-12 w-full resize-none rounded-[5px] border border-input bg-background px-2 py-1.5 text-[9px] text-foreground placeholder:text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring"
+                />
+              </section>
+            )}
+
+            {homeDetail === "timer" && (
+              <section className="flex items-center justify-between rounded-[6px] border border-border bg-card px-3 py-2">
+                <div>
+                  <p className="text-[10px] font-medium text-card-foreground">Focus timer</p>
+                  <p className="mt-1 font-mono text-[12px] tabular-nums text-card-foreground">
+                    {String(Math.floor(timerSeconds / 60)).padStart(2, "0")}:{String(timerSeconds % 60).padStart(2, "0")}
+                  </p>
+                </div>
+                <div className="flex gap-1.5">
+                  <Button variant="outline" size="xs" onClick={() => setTimerRunning((running) => !running)} className="h-6 rounded-[5px] border-border bg-secondary text-[9px] text-secondary-foreground hover:bg-accent">
+                    {timerRunning ? "Pause" : timerSeconds === 0 ? "Start again" : "Resume"}
+                  </Button>
+                  <Button variant="outline" size="xs" onClick={() => { setTimerRunning(false); setTimerSeconds(25 * 60); }} className="h-6 rounded-[5px] border-border bg-secondary text-[9px] text-secondary-foreground hover:bg-accent">
+                    Reset
+                  </Button>
+                </div>
+              </section>
+            )}
+
+            {homeDetail === "system" && (
+              <section className="flex items-center justify-between rounded-[6px] border border-border bg-card px-3 py-2.5">
+                <div>
+                  <p className="text-[10px] font-medium text-card-foreground">Orbit is ready</p>
+                  <p className="mt-1 text-[9px] text-muted-foreground">{isTauriEnvironment() ? "Windows desktop runtime · Connected" : "Browser preview · Desktop runtime unavailable"}</p>
+                </div>
+                <span className="rounded-[4px] border border-border bg-secondary px-1.5 py-1 text-[8px] text-secondary-foreground">STATUS</span>
+              </section>
             )}
           </div>
         )}
@@ -1351,7 +1561,7 @@ export function ExpandedIsland({
                 <div className="h-44 flex flex-col items-center justify-center text-center p-4 rounded-2xl bg-white/[0.01] border border-white/[0.04] space-y-2">
                   <Bot className="w-8 h-8 text-sky-400 stroke-[1.2]" />
                   <div className="space-y-0.5">
-                    <p className="text-xs font-medium text-white">Ask Orbit Assistant</p>
+                    <p className="text-xs font-medium text-white">Ask Orbit</p>
                     <p className="text-[10px] text-neutral-400 max-w-sm">
                       Ask about recent news, current events, technology & AI breakthroughs, or company stock data.
                     </p>
@@ -1462,7 +1672,7 @@ export function ExpandedIsland({
                 type="text"
                 value={assistantInput}
                 onChange={(e) => setAssistantInput(e.target.value)}
-                placeholder="Message Orbit Assistant (or click microphone to speak)..."
+                placeholder="Message Orbit (or click microphone to speak)..."
                 className="h-7 border-0 bg-transparent px-0 py-0 text-xs font-medium text-white placeholder:text-neutral-500 focus-visible:ring-0 shadow-none flex-1"
               />
 

@@ -186,7 +186,8 @@ html[data-theme="light"] {
 }
 
 html[data-theme="light"] [class~="bg-[#07080a]/98"],
-html[data-theme="light"] [class~="bg-[#07080b]/98"] {
+html[data-theme="light"] [class~="bg-[#07080b]/98"],
+html[data-theme="light"] .orbit-panel [class~="bg-[#0e1017]"] {
   background-color: rgb(248 250 252 / 98%);
 }
 html[data-theme="light"] [class~="bg-[#0b0c10]/80"],
@@ -377,6 +378,67 @@ html[data-theme="dark"][data-accent] {
   --primary: #f4f4f5;
   --primary-foreground: #09090b;
   --ring: #a1a1aa;
+}
+
+/* Keep the floating assistant's surfaces monochrome regardless of the
+   selected preference accent; utility focus uses restrained neutral contrast. */
+html[data-theme="dark"] .orbit-panel [class*="text-amber-"],
+html[data-theme="dark"] .orbit-panel [class*="text-sky-"],
+html[data-theme="dark"] .orbit-panel [class*="text-emerald-"],
+html[data-theme="dark"] .orbit-panel [class*="text-rose-"],
+html[data-theme="dark"] .orbit-panel [class*="text-violet-"],
+html[data-theme="dark"] .orbit-panel [class*="text-green-"] {
+  color: #c4c4c4 !important;
+}
+
+html[data-theme="dark"] .orbit-panel [class*="bg-amber-"],
+html[data-theme="dark"] .orbit-panel [class*="bg-sky-"],
+html[data-theme="dark"] .orbit-panel [class*="bg-emerald-"],
+html[data-theme="dark"] .orbit-panel [class*="bg-rose-"],
+html[data-theme="dark"] .orbit-panel [class*="bg-violet-"],
+html[data-theme="dark"] .orbit-panel [class*="bg-green-"] {
+  background-color: #292929 !important;
+}
+
+html[data-theme="dark"] .orbit-panel [class*="border-amber-"],
+html[data-theme="dark"] .orbit-panel [class*="border-sky-"],
+html[data-theme="dark"] .orbit-panel [class*="border-emerald-"],
+html[data-theme="dark"] .orbit-panel [class*="border-rose-"],
+html[data-theme="dark"] .orbit-panel [class*="border-violet-"],
+html[data-theme="dark"] .orbit-panel [class*="border-green-"] {
+  border-color: #4a4a4a !important;
+}
+
+html[data-theme="light"] .orbit-panel [class*="text-amber-"],
+html[data-theme="light"] .orbit-panel [class*="text-sky-"],
+html[data-theme="light"] .orbit-panel [class*="text-emerald-"],
+html[data-theme="light"] .orbit-panel [class*="text-rose-"],
+html[data-theme="light"] .orbit-panel [class*="text-violet-"],
+html[data-theme="light"] .orbit-panel [class*="text-green-"] {
+  color: #525252 !important;
+}
+
+html[data-theme="light"] .orbit-panel [class*="bg-amber-"],
+html[data-theme="light"] .orbit-panel [class*="bg-sky-"],
+html[data-theme="light"] .orbit-panel [class*="bg-emerald-"],
+html[data-theme="light"] .orbit-panel [class*="bg-rose-"],
+html[data-theme="light"] .orbit-panel [class*="bg-violet-"],
+html[data-theme="light"] .orbit-panel [class*="bg-green-"] {
+  background-color: #ededed !important;
+}
+
+html[data-theme="light"] .orbit-panel [class*="border-amber-"],
+html[data-theme="light"] .orbit-panel [class*="border-sky-"],
+html[data-theme="light"] .orbit-panel [class*="border-emerald-"],
+html[data-theme="light"] .orbit-panel [class*="border-rose-"],
+html[data-theme="light"] .orbit-panel [class*="border-violet-"],
+html[data-theme="light"] .orbit-panel [class*="border-green-"] {
+  border-color: #d4d4d4 !important;
+}
+
+.orbit-panel :focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 2px;
 }
 html[data-accent="neutral"] { --selected-accent: 24 24 27; --accent-text: #18181b; }
 html[data-theme="dark"][data-accent="neutral"] { --selected-accent: 244 244 245; --accent-text: #f4f4f5; }

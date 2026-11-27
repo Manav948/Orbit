@@ -17,6 +17,7 @@ export function OrbitLogo(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
 export function SearchIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
