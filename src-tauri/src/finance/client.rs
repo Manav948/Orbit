@@ -17,10 +17,25 @@ pub struct Candle {
     pub close: f64,
 }
 
+fn currency_for_symbol(symbol: &str) -> &'static str {
+    let symbol = symbol.to_uppercase();
+    if symbol == "USDINR=X"
+        || symbol == "^BSESN"
+        || symbol == "^NSEI"
+        || symbol.ends_with(".NS")
+        || symbol.ends_with(".BO")
+    {
+        "INR"
+    } else {
+        "USD"
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StockQuote {
     pub symbol: String,
     pub name: String,
+    pub currency: String,
     pub price: f64,
     pub change: f64,
     pub change_percent: f64,
@@ -168,6 +183,7 @@ struct YahooChartResult {
 
 #[derive(Debug, Deserialize)]
 struct YahooChartMeta {
+    currency: Option<String>,
     #[serde(rename = "regularMarketPrice")]
     regular_market_price: Option<f64>,
     #[serde(rename = "regularMarketOpen")]
@@ -306,6 +322,9 @@ async fn fetch_yahoo_quote(client: &reqwest::Client, sym: &str) -> Option<StockQ
     Some(StockQuote {
         symbol: sym.to_string(),
         name,
+        currency: meta
+            .currency
+            .unwrap_or_else(|| currency_for_symbol(sym).to_string()),
         price: (price * 100.0).round() / 100.0,
         change: (change * 100.0).round() / 100.0,
         change_percent: (change_percent * 100.0).round() / 100.0,
@@ -361,6 +380,7 @@ pub async fn get_single_quote_with_client(
                             return StockQuote {
                                 symbol: sym.clone(),
                                 name: company_name_for_symbol(&sym).to_string(),
+                                currency: currency_for_symbol(&sym).to_string(),
                                 price: (price * 100.0).round() / 100.0,
                                 change: (change * 100.0).round() / 100.0,
                                 change_percent: (change_percent * 100.0).round() / 100.0,
@@ -493,6 +513,7 @@ fn generate_sample_quote(symbol: &str) -> StockQuote {
     StockQuote {
         symbol: symbol.to_string(),
         name: company_name_for_symbol(symbol).to_string(),
+        currency: currency_for_symbol(symbol).to_string(),
         price: base_price,
         change,
         change_percent: change_pct,

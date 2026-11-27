@@ -112,6 +112,22 @@ function getTodayLabel(): string {
   });
 }
 
+function formatCurrencyValue(value: number, currency: string): string {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatIndexValue(value: number): string {
+  return new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 function isWithinDateFilter(dateStr: string | null, filter: DateFilter): boolean {
   if (filter === "all" || !dateStr) return true;
   const articleDate = new Date(dateStr).getTime();
@@ -194,8 +210,12 @@ export function ExpandedIsland({
 
   // ── Finance Intelligence State ────────────────────────────────────────────
   const [quotes, setQuotes] = useState<StockQuote[]>([]);
+  const [indianIndices, setIndianIndices] = useState<StockQuote[]>([]);
+  const [usdInrQuote, setUsdInrQuote] = useState<StockQuote | null>(null);
   const [isLoadingQuotes, setIsLoadingQuotes] = useState(false);
   const [financeError, setFinanceError] = useState<string | null>(null);
+  const [indianMarketError, setIndianMarketError] = useState<string | null>(null);
+  const [exchangeRateError, setExchangeRateError] = useState<string | null>(null);
   const [quickAddSymbol, setQuickAddSymbol] = useState("");
 
   // ── Raw Articles ──────────────────────────────────────────────────────────
@@ -324,14 +344,56 @@ export function ExpandedIsland({
   const loadFinanceQuotes = useCallback(async () => {
     setIsLoadingQuotes(true);
     setFinanceError(null);
-    try {
-      const data = await dbService.getWatchlistQuotes();
-      setQuotes(data);
-    } catch (err) {
-      setFinanceError(err instanceof Error ? err.message : "Failed to fetch market quotes.");
-    } finally {
-      setIsLoadingQuotes(false);
+    setIndianMarketError(null);
+    setExchangeRateError(null);
+
+    const [watchlistResult, exchangeRateResult, sensexResult, niftyResult] = await Promise.allSettled([
+      dbService.getWatchlistQuotes(),
+      dbService.getFinanceQuote("USDINR=X"),
+      dbService.getFinanceQuote("^BSESN"),
+      dbService.getFinanceQuote("^NSEI"),
+    ]);
+
+    if (watchlistResult.status === "fulfilled") {
+      setQuotes(watchlistResult.value);
+    } else {
+      setFinanceError(watchlistResult.reason instanceof Error ? watchlistResult.reason.message : "Failed to fetch global market quotes.");
     }
+
+    if (
+      exchangeRateResult.status === "fulfilled" &&
+      exchangeRateResult.value.currency === "INR" &&
+      !exchangeRateResult.value.is_delayed &&
+      exchangeRateResult.value.provider !== "Sample Market Data"
+    ) {
+      setUsdInrQuote(exchangeRateResult.value);
+    } else {
+      setUsdInrQuote(null);
+      setExchangeRateError("Live USD/INR rate unavailable. USD assets remain in their source currency.");
+    }
+
+    const isLiveIndex = (result: PromiseSettledResult<StockQuote>) =>
+      result.status === "fulfilled" &&
+      result.value.currency === "INR" &&
+      !result.value.is_delayed &&
+      result.value.provider !== "Sample Market Data";
+    const availableIndices = [sensexResult, niftyResult].flatMap((result) =>
+      isLiveIndex(result) && result.status === "fulfilled" ? [result.value] : [],
+    );
+    setIndianIndices(availableIndices);
+    if (availableIndices.length < 2) {
+      const unavailable = [
+        !isLiveIndex(sensexResult) ? "Sensex" : null,
+        !isLiveIndex(niftyResult) ? "Nifty 50" : null,
+      ].filter((name): name is string => name !== null);
+      setIndianMarketError(
+        unavailable.length === 2
+          ? "Indian index data is currently unavailable."
+          : `${unavailable.join(" and ")} data is currently unavailable.`,
+      );
+    }
+
+    setIsLoadingQuotes(false);
   }, []);
 
   // ── On mount: load publishers
@@ -694,7 +756,7 @@ export function ExpandedIsland({
     (sortMode !== "latest" ? 1 : 0) +
     (dateFilter !== "all" ? 1 : 0);
 
-  const renderCandlestickChart = (candles: StockCandle[]) => {
+  const renderCandlestickChart = (candles: StockCandle[], axisCurrency: string | null = "USD") => {
     if (!candles.length) return null;
 
     const width = 164;
@@ -714,11 +776,15 @@ export function ExpandedIsland({
     const priceLevels = [max, (max + min) / 2, min];
     const firstDate = new Date(candles[0].timestamp * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
     const lastDate = new Date(candles[candles.length - 1].timestamp * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    const formatAxisPrice = (price: number) => price >= 1000
-      ? `${(price / 1000).toFixed(1)}k`
-      : price < 1
-      ? price.toFixed(3)
-      : price.toFixed(2);
+    const formatAxisPrice = (price: number) => {
+      const compact = price >= 1_000_000
+        ? `${(price / 1_000_000).toFixed(1)}M`
+        : price >= 1000
+        ? `${(price / 1000).toFixed(1)}k`
+        : price.toFixed(price < 1 ? 3 : 2);
+      const symbol = axisCurrency === "INR" ? "₹" : axisCurrency === "USD" ? "$" : "";
+      return `${symbol}${compact}`;
+    };
 
     return (
       <svg
@@ -1831,110 +1897,209 @@ export function ExpandedIsland({
         ══════════════════════════════════════════════════════════════ */}
         {activeView === "finance" && (
           <div className="flex-1 flex flex-col min-h-0 space-y-2">
-            {/* Quick Watchlist Add Bar */}
-            <div className="flex items-center justify-between shrink-0 gap-2 pb-0.5">
-              <span className="text-xs font-semibold text-white flex items-center gap-1.5">
-                <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Market Watchlist</span>
-              </span>
+            <div className="flex items-center justify-between shrink-0 gap-3 pb-0.5">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-white flex items-center gap-1.5">
+                  <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Markets</span>
+                  <span className="text-[9px] font-medium text-neutral-500">GLOBAL + INDIA</span>
+                </div>
+                <p className="text-[9px] text-neutral-500 mt-0.5">USD assets converted to INR · Indian benchmarks in index points</p>
+              </div>
 
-              <form onSubmit={handleAddWatchlistTicker} className="flex items-center space-x-1.5">
+              <form onSubmit={handleAddWatchlistTicker} className="flex items-center space-x-1.5 shrink-0">
                 <Input
                   type="text"
-                  placeholder="+ Ticker (e.g. NVDA)"
+                  placeholder="Ticker (e.g. NVDA)"
                   value={quickAddSymbol}
                   onChange={(e) => setQuickAddSymbol(e.target.value)}
-                  className="h-6 text-[10px] font-mono bg-black/60 border-white/[0.1] rounded-lg px-2 text-white w-28 uppercase"
+                  className="h-7 text-[10px] font-mono bg-black/60 border-white/[0.1] rounded-lg px-2 text-white w-28 uppercase"
                 />
                 <Button
                   type="submit"
                   size="xs"
                   disabled={!quickAddSymbol.trim()}
-                  className="h-6 px-2 text-[10px] rounded-lg bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-semibold"
+                  className="h-7 px-2.5 text-[10px] rounded-lg bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-semibold"
                 >
                   Add
                 </Button>
               </form>
             </div>
 
-            {financeError && (
-              <div className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[10px] text-rose-300">
-                {financeError}
-              </div>
-            )}
-
-            {/* Watchlist Stock Cards Grid */}
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-0">
-              {isLoadingQuotes ? (
-                <div className="space-y-2 py-2">
-                  {[1, 2, 3].map((n) => (
-                    <div key={n} className="h-16 rounded-2xl bg-white/[0.02] border border-white/[0.04] animate-pulse" />
-                  ))}
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 min-h-0">
+              <section className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-300 flex items-center gap-1.5">
+                    <Activity className="w-3 h-3 text-emerald-400" />
+                    Indian indices
+                  </h3>
+                  <span className="text-[9px] text-neutral-500">BSE · NSE · points</span>
                 </div>
-              ) : quotes.length > 0 ? (
-                quotes.map((q) => {
-                  const isPositive = q.change >= 0;
-                  return (
-                    <div
-                      key={q.symbol}
-                      className="p-3 rounded-2xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] hover:border-white/[0.12] transition-all flex items-center justify-between gap-3"
-                    >
-                      <div className="truncate min-w-0 flex-1">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-mono text-xs font-bold text-white">{q.symbol}</span>
-                          <span className="text-[10px] text-neutral-400 truncate">{q.name}</span>
-                          {q.is_delayed && (
-                            <Badge variant="outline" className="text-[8px] px-1 py-0 bg-white/[0.04] text-neutral-400 border-white/[0.08]">
-                              Delayed
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-3 text-[10px] text-neutral-500 pt-0.5">
-                          <span>Open: ${q.open.toFixed(2)}</span>
-                          <span>High: ${q.high.toFixed(2)}</span>
-                          <span>Low: ${q.low.toFixed(2)}</span>
-                        </div>
-                      </div>
 
-                      {/* Sparkline mini-chart */}
-                      <div className="hidden sm:block shrink-0">
-                        {renderCandlestickChart(q.candles)}
-                      </div>
+                {indianMarketError && (
+                  <div className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-[9px] text-rose-300">
+                    {indianMarketError}
+                  </div>
+                )}
 
-                      {/* Price & Change Badge */}
-                      <div className="text-right shrink-0">
-                        <div className="text-xs font-mono font-bold text-white">
-                          ${q.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                        <div
-                          className={`inline-flex items-center gap-0.5 text-[10px] font-mono font-semibold ${
-                            isPositive ? "text-emerald-400" : "text-rose-400"
-                          }`}
+                {isLoadingQuotes && indianIndices.length === 0 ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {[0, 1].map((n) => (
+                      <div key={n} className="h-24 rounded-xl bg-white/[0.02] border border-white/[0.04] animate-pulse" />
+                    ))}
+                  </div>
+                ) : indianIndices.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {indianIndices.map((index) => {
+                      const isPositive = index.change >= 0;
+                      const isSensex = index.symbol === "^BSESN";
+                      return (
+                        <article key={index.symbol} className="p-2.5 rounded-xl bg-white/[0.025] border border-white/[0.07] min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-[9px] font-semibold tracking-wide text-neutral-300">
+                              {isSensex ? "SENSEX" : "NIFTY 50"}
+                            </span>
+                            <span className="text-[8px] text-neutral-500">{isSensex ? "BSE" : "NSE"}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-1 mt-1">
+                            <div className="min-w-0">
+                              <div className="font-mono text-sm font-semibold text-white">
+                                {formatIndexValue(index.price)}
+                              </div>
+                              <div className={`flex items-center gap-0.5 text-[9px] font-mono ${isPositive ? "text-emerald-400" : "text-rose-400"}`}>
+                                {isPositive ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                                <span>
+                                  {isPositive ? "+" : "−"}{formatIndexValue(Math.abs(index.change))}
+                                  <span className="text-neutral-400"> ({isPositive ? "+" : ""}{index.change_percent.toFixed(2)}%)</span>
+                                </span>
+                              </div>
+                            </div>
+                            <div className="hidden sm:block shrink-0">
+                              {renderCandlestickChart(index.candles, null)}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between gap-1 border-t border-white/[0.06] mt-1.5 pt-1.5 text-[8px] text-neutral-500">
+                            <span>Open {formatIndexValue(index.open)}</span>
+                            <span>Prev close {formatIndexValue(index.previous_close)}</span>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="px-3 py-2 rounded-xl bg-white/[0.015] border border-white/[0.05] text-[9px] text-neutral-400">
+                    Live Sensex and Nifty 50 quotes will appear here when the market-data provider responds.
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-wide text-neutral-300 flex items-center gap-1.5">
+                    <DollarSign className="w-3 h-3 text-emerald-400" />
+                    Global watchlist
+                  </h3>
+                  <span className="text-[8px] text-neutral-500 text-right">
+                    {usdInrQuote
+                      ? `USD/INR ${formatCurrencyValue(usdInrQuote.price, "INR")}`
+                      : "Native currency until FX is available"}
+                  </span>
+                </div>
+
+                {exchangeRateError && (
+                  <div className="px-2.5 py-1 rounded-lg bg-white/[0.025] border border-white/[0.06] text-[9px] text-neutral-400">
+                    {exchangeRateError}
+                  </div>
+                )}
+                {financeError && (
+                  <div className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-[9px] text-rose-300">
+                    {financeError}
+                  </div>
+                )}
+
+                {isLoadingQuotes && quotes.length === 0 ? (
+                  <div className="space-y-2 py-1">
+                    {[1, 2, 3].map((n) => (
+                      <div key={n} className="h-16 rounded-xl bg-white/[0.02] border border-white/[0.04] animate-pulse" />
+                    ))}
+                  </div>
+                ) : quotes.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {quotes.map((quote) => {
+                      const conversionRate = quote.currency === "USD" ? usdInrQuote?.price : undefined;
+                      const displayCurrency = conversionRate ? "INR" : quote.currency;
+                      const multiplier = conversionRate ?? 1;
+                      const displayedQuote: StockQuote = {
+                        ...quote,
+                        price: quote.price * multiplier,
+                        change: quote.change * multiplier,
+                        open: quote.open * multiplier,
+                        high: quote.high * multiplier,
+                        low: quote.low * multiplier,
+                        previous_close: quote.previous_close * multiplier,
+                        candles: quote.candles.map((candle) => ({
+                          ...candle,
+                          open: candle.open * multiplier,
+                          high: candle.high * multiplier,
+                          low: candle.low * multiplier,
+                          close: candle.close * multiplier,
+                        })),
+                      };
+                      const isPositive = displayedQuote.change >= 0;
+                      return (
+                        <article
+                          key={quote.symbol}
+                          className="p-2.5 rounded-xl bg-white/[0.02] hover:bg-white/[0.04] border border-white/[0.06] hover:border-white/[0.12] transition-colors flex items-center justify-between gap-2"
                         >
-                          {isPositive ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
-                          <span>
-                            {isPositive ? "+" : ""}
-                            {q.change.toFixed(2)} ({isPositive ? "+" : ""}
-                            {q.change_percent.toFixed(2)}%)
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="h-44 flex flex-col items-center justify-center text-center p-4 rounded-2xl bg-white/[0.01] border border-white/[0.04] space-y-2">
-                  <TrendingUp className="w-8 h-8 text-neutral-500 stroke-[1.2]" />
-                  <p className="text-xs font-medium text-white">No Assets in Watchlist</p>
-                  <p className="text-[10px] text-neutral-400">
-                    Add tickers above or configure your Finnhub key in Settings.
-                  </p>
-                </div>
-              )}
+                          <div className="truncate min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-[10px] font-bold text-white">{quote.symbol}</span>
+                              <span className="text-[9px] text-neutral-400 truncate">{quote.name}</span>
+                              {quote.is_delayed && (
+                                <Badge variant="outline" className="text-[7px] px-1 py-0 bg-white/[0.04] text-neutral-400 border-white/[0.08]">
+                                  Delayed
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 text-[8px] text-neutral-500 pt-0.5">
+                              <span>Open {formatCurrencyValue(displayedQuote.open, displayCurrency)}</span>
+                              <span>High {formatCurrencyValue(displayedQuote.high, displayCurrency)}</span>
+                              <span>Low {formatCurrencyValue(displayedQuote.low, displayCurrency)}</span>
+                            </div>
+                          </div>
+
+                          <div className="hidden sm:block shrink-0">
+                            {renderCandlestickChart(displayedQuote.candles, displayCurrency)}
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <div className="text-[11px] font-mono font-bold text-white">
+                              {formatCurrencyValue(displayedQuote.price, displayCurrency)}
+                            </div>
+                            <div className={`inline-flex items-center gap-0.5 text-[9px] font-mono font-semibold ${isPositive ? "text-emerald-400" : "text-rose-400"}`}>
+                              {isPositive ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                              <span>
+                                {isPositive ? "+" : "−"}{formatCurrencyValue(Math.abs(displayedQuote.change), displayCurrency)}
+                                <span className="text-neutral-400"> ({isPositive ? "+" : ""}{quote.change_percent.toFixed(2)}%)</span>
+                              </span>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="h-24 flex flex-col items-center justify-center text-center p-3 rounded-xl bg-white/[0.01] border border-white/[0.04] space-y-1">
+                    <TrendingUp className="w-5 h-5 text-neutral-500 stroke-[1.2]" />
+                    <p className="text-[10px] font-medium text-white">No assets in watchlist</p>
+                    <p className="text-[9px] text-neutral-400">Add a ticker above or configure a provider in Settings.</p>
+                  </div>
+                )}
+              </section>
             </div>
 
             <div className="text-[9px] text-neutral-500 text-center shrink-0 pt-0.5">
-              Finnhub / Sample Market Data • Delayed quotes where applicable • Not investment advice
+              Live exchange data where available · Delayed quotes are marked · Not investment advice
             </div>
           </div>
         )}

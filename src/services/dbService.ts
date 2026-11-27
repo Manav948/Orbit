@@ -175,6 +175,7 @@ export interface AssistantReply {
 export interface StockQuote {
   symbol: string;
   name: string;
+  currency: string;
   price: number;
   change: number;
   change_percent: number;
