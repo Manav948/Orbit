@@ -73,16 +73,22 @@ export function CollapsedIsland({
 
   return (
     <div
-      className={`relative flex items-center justify-center ${
-        showSideWaveform ? "h-[40px] w-[560px]" : "w-[280px]"
+      className={`relative flex justify-center ${
+        showSideWaveform ? "h-[88px] w-[680px] items-start" : "w-[280px] items-center"
       }`}
     >
       {showSideWaveform && (
-        <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center text-primary/80" aria-hidden>
+        <div
+          className={`pointer-events-none absolute inset-x-0 -top-[6px] z-0 flex justify-center ${
+            isSpeaking ? "text-primary/80" : "text-slate-900/80"
+          }`}
+          aria-hidden
+        >
           <VoiceWaveform
             state={isSpeaking ? "speaking" : "idle"}
-            bars={128}
-            className="h-10 w-full justify-center gap-[2px]"
+            bars={160}
+            height={80}
+            className="w-full justify-center gap-[2px]"
           />
         </div>
       )}

@@ -322,14 +322,14 @@ pub fn position_window_top_center(
 }
 
 /// Dynamically updates the native window size and position for Dynamic Island states:
-/// - "collapsed": 560 × 48 px at top-center
+/// - "collapsed": 680 × 100 px at top-center
 /// - "voice-answer": 368 × 240 px at top-center
 /// - "expanded": 680 × 520 px at top-center
 /// - "settings": 780 × 560 px at top-center
 #[tauri::command]
 pub fn set_island_geometry(window: tauri::WebviewWindow, state: String) -> Result<(), String> {
     let (width, height, top_offset) = match state.as_str() {
-        "collapsed" => (560.0, 48.0, 12.0),
+        "collapsed" => (680.0, 100.0, 12.0),
         "voice-answer" => (368.0, 240.0, 12.0),
         "expanded" => (680.0, 520.0, 12.0),
         "settings" => (780.0, 560.0, 20.0),
