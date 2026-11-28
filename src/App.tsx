@@ -67,7 +67,7 @@ export function App() {
     setVoiceAnswer(null);
     setVoiceAnswerError(null);
     setVoiceAnswerLoading(true);
-    void transitionTo("voice-answer");
+    void transitionTo("collapsed");
     try {
       const answer = await dbService.askQuestion(trimmedQuestion);
       if (requestId !== voiceAnswerRequestId.current) return;
@@ -176,10 +176,13 @@ export function App() {
             <CollapsedIsland
               onExpand={handleExpand}
               onVoiceQuery={handleVoiceQuery}
-              voiceQuestion={mode === "voice-answer" ? voiceQuestion : null}
-              voiceAnswer={mode === "voice-answer" ? voiceAnswer : null}
-              voiceAnswerLoading={mode === "voice-answer" && voiceAnswerLoading}
-              voiceAnswerError={mode === "voice-answer" ? voiceAnswerError : null}
+              voiceQuestion={voiceQuestion}
+              voiceAnswer={voiceAnswer}
+              voiceAnswerLoading={voiceAnswerLoading}
+              voiceAnswerError={voiceAnswerError}
+              voiceAnswerMinimized={mode !== "voice-answer"}
+              onOpenVoiceAnswer={() => void transitionTo("voice-answer")}
+              onMinimizeVoiceAnswer={() => void transitionTo("collapsed")}
               onDismissVoiceAnswer={handleDismissVoiceAnswer}
             />
           </div>

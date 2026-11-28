@@ -134,9 +134,9 @@ export const tauriBridge = {
   async getWindowGeometry(): Promise<WindowGeometry> {
     if (!isTauriEnvironment()) {
       return {
-        width: 360,
+        width: 560,
         height: 48,
-        x: Math.round((window.screen.availWidth - 360) / 2),
+        x: Math.round((window.screen.availWidth - 560) / 2),
         y: 12,
         scale_factor: window.devicePixelRatio || 1,
       };
@@ -151,7 +151,7 @@ export const tauriBridge = {
 
   /**
    * Updates the native window size and position for Dynamic Island states:
-   * "collapsed" (360x48), "voice-answer" (368x240), "expanded" (680x520), or "settings" (780x560).
+   * "collapsed" (560x48), "voice-answer" (368x240), "expanded" (680x520), or "settings" (780x560).
    */
   async setIslandGeometry(state: "collapsed" | "voice-answer" | "expanded" | "settings"): Promise<void> {
     if (!isTauriEnvironment()) {
